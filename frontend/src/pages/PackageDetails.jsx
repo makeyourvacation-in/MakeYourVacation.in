@@ -168,7 +168,7 @@ export default function PackageDetails() {
               <div className="text-xs text-navy/50 font-poppins">per person on twin sharing</div>
 
               <Link to={`/contact?package=${encodeURIComponent(pkg.name)}&destination=${encodeURIComponent(pkg.destination)}`} data-testid="package-book-now-btn" className="btn-gold w-full justify-center mt-6">Book Now <ArrowRight size={16}/></Link>
-              <a href="https://wa.me/917569805416" target="_blank" rel="noopener noreferrer" data-testid="package-whatsapp-btn" className="btn-navy w-full justify-center mt-3">Chat on WhatsApp</a>
+              <a href="https://wa.me/917569508416" target="_blank" rel="noopener noreferrer" data-testid="package-whatsapp-btn" className="btn-navy w-full justify-center mt-3">Chat on WhatsApp</a>
 
               <div className="mt-6 pt-6 border-t border-navy/10 space-y-2 text-sm font-poppins text-navy/70">
                 <div className="flex justify-between"><span>Duration</span><span className="font-medium text-navy">{pkg.duration}</span></div>

@@ -5,6 +5,8 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 import os
+import io
+import csv
 import logging
 import uuid
 import smtplib
@@ -12,11 +14,12 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 import bcrypt
 import jwt
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, status
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, Query
+from fastapi.responses import StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr
@@ -29,11 +32,17 @@ db = client[os.environ['DB_NAME']]
 JWT_SECRET = os.environ['JWT_SECRET']
 JWT_ALG = "HS256"
 
+CONTACT_PHONE = "+91 7569508416"
+CONTACT_PHONE_INTL = "917569508416"
+CONTACT_EMAIL = "makeyourvacation.in@gmail.com"
+
 app = FastAPI(title="MakeYourVacation.in API")
 api = APIRouter(prefix="/api")
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+BOOKING_STATUSES = ["New", "Contacted", "Confirmed", "Cancelled", "Completed"]
 
 
 # ============ Auth utils ============
@@ -108,11 +117,6 @@ class PackageIn(BaseModel):
     faqs: List[FAQItem] = []
     featured: bool = False
 
-class PackageOut(PackageIn):
-    id: str
-    created_at: str
-    updated_at: str
-
 class BookingIn(BaseModel):
     full_name: str
     mobile: str
@@ -125,54 +129,139 @@ class BookingIn(BaseModel):
     package_name: Optional[str] = None
     message: str = ""
 
+class BookingStatusUpdate(BaseModel):
+    status: Literal["New", "Contacted", "Confirmed", "Cancelled", "Completed"]
+
 
 # ============ Email service ============
-def _send_email_sync(subject: str, html_body: str):
+def _send_email_sync(to_addr: str, subject: str, html_body: str, reply_to: str = None):
     gmail_user = os.environ['GMAIL_USER']
     gmail_pass = os.environ['GMAIL_APP_PASSWORD'].replace(" ", "")
-    to_addr = os.environ['BOOKING_EMAIL_TO']
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = f"MakeYourVacation.in <{gmail_user}>"
     msg["To"] = to_addr
+    if reply_to:
+        msg["Reply-To"] = reply_to
     msg.attach(MIMEText(html_body, "html"))
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as server:
         server.login(gmail_user, gmail_pass)
         server.sendmail(gmail_user, [to_addr], msg.as_string())
 
-async def send_booking_email(booking: dict):
-    subject = f"New Booking Inquiry — {booking.get('destination') or booking.get('package_name') or 'Trip'}"
-    html = f"""
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background:#f7f7f7;">
-      <div style="background:#071E3D; color:#D4AF37; padding:24px; text-align:center;">
-        <h1 style="margin:0; font-family: 'Playfair Display', serif;">MakeYourVacation.in</h1>
-        <p style="margin:6px 0 0; color:#fff;">New Booking Inquiry</p>
-      </div>
-      <div style="background:#fff; padding:24px; color:#333;">
-        <h2 style="color:#071E3D;">Customer Details</h2>
-        <p><b>Name:</b> {booking['full_name']}</p>
-        <p><b>Email:</b> {booking['email']}</p>
-        <p><b>Mobile:</b> {booking['mobile']}</p>
-        <h2 style="color:#071E3D;">Trip Details</h2>
-        <p><b>Destination:</b> {booking['destination']}</p>
-        <p><b>Package:</b> {booking.get('package_name') or '—'}</p>
-        <p><b>Travel Date:</b> {booking['travel_date']}</p>
-        <p><b>Adults:</b> {booking['adults']} &nbsp; <b>Children:</b> {booking.get('children', 0)}</p>
-        <h2 style="color:#071E3D;">Message</h2>
-        <p style="white-space:pre-wrap;">{booking.get('message') or '—'}</p>
-        <hr style="border:none;border-top:1px solid #eee;margin:20px 0;"/>
-        <p style="color:#888; font-size:12px;">Received at {datetime.now(timezone.utc).strftime('%d %b %Y, %H:%M UTC')}</p>
+
+def _luxury_email_shell(inner_html: str, headline: str = "MakeYourVacation.in", subline: str = "") -> str:
+    return f"""
+    <div style="font-family: Arial, Helvetica, sans-serif; max-width: 640px; margin: 0 auto; background:#F7F7F7; padding: 24px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#071E3D; border-radius:16px 16px 0 0;">
+        <tr><td style="padding:36px 32px; text-align:center;">
+          <div style="color:#D4AF37; font-family:'Playfair Display',Georgia,serif; font-size:30px; font-weight:600; letter-spacing:0.5px;">{headline}</div>
+          <div style="color:#FFFFFF; font-size:13px; letter-spacing:3px; text-transform:uppercase; margin-top:8px;">{subline}</div>
+        </td></tr>
+      </table>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FFFFFF; border-radius:0 0 16px 16px;">
+        <tr><td style="padding:32px; color:#333;">
+          {inner_html}
+        </td></tr>
+      </table>
+      <div style="text-align:center; padding:24px 12px; color:#888; font-size:12px;">
+        <div>Need help? WhatsApp / Call <a href="https://wa.me/{CONTACT_PHONE_INTL}" style="color:#071E3D; text-decoration:none;"><b>{CONTACT_PHONE}</b></a> · <a href="mailto:{CONTACT_EMAIL}" style="color:#071E3D; text-decoration:none;">{CONTACT_EMAIL}</a></div>
+        <div style="margin-top:8px;">© 2026 MakeYourVacation.in — Curated Luxury Journeys</div>
       </div>
     </div>
     """
+
+
+def _admin_email_html(b: dict) -> str:
+    inner = f"""
+      <div style="display:inline-block; background:#D4AF37; color:#071E3D; font-weight:700; padding:6px 14px; border-radius:20px; letter-spacing:2px; font-size:11px; text-transform:uppercase;">Booking Reference · {b['reference']}</div>
+      <h2 style="color:#071E3D; margin:18px 0 8px; font-family:'Playfair Display',Georgia,serif;">New Booking Inquiry</h2>
+      <p style="color:#555; margin:0 0 24px;">A new customer has submitted a booking inquiry through the website.</p>
+
+      <h3 style="color:#071E3D; border-bottom:2px solid #D4AF37; padding-bottom:6px;">Customer</h3>
+      <p style="margin:4px 0;"><b>Name:</b> {b['full_name']}</p>
+      <p style="margin:4px 0;"><b>Email:</b> <a href="mailto:{b['email']}" style="color:#071E3D;">{b['email']}</a></p>
+      <p style="margin:4px 0;"><b>Mobile:</b> <a href="tel:{b['mobile']}" style="color:#071E3D;">{b['mobile']}</a></p>
+
+      <h3 style="color:#071E3D; border-bottom:2px solid #D4AF37; padding-bottom:6px; margin-top:22px;">Trip</h3>
+      <p style="margin:4px 0;"><b>Destination:</b> {b['destination']}</p>
+      <p style="margin:4px 0;"><b>Package:</b> {b.get('package_name') or '—'}</p>
+      <p style="margin:4px 0;"><b>Travel Date:</b> {b['travel_date']}</p>
+      <p style="margin:4px 0;"><b>Travellers:</b> {b['adults']} adults · {b.get('children', 0)} children</p>
+
+      <h3 style="color:#071E3D; border-bottom:2px solid #D4AF37; padding-bottom:6px; margin-top:22px;">Message</h3>
+      <p style="white-space:pre-wrap; background:#F7F7F7; padding:14px; border-radius:8px; color:#333;">{b.get('message') or '—'}</p>
+
+      <div style="margin-top:26px; padding:14px; background:#071E3D; border-radius:10px; color:#fff; text-align:center;">
+        <div style="font-size:12px; color:#D4AF37; letter-spacing:2px; text-transform:uppercase;">Received</div>
+        <div>{datetime.now(timezone.utc).strftime('%d %b %Y, %H:%M UTC')}</div>
+      </div>
+    """
+    return _luxury_email_shell(inner, subline="New Booking Inquiry")
+
+
+def _customer_email_html(b: dict) -> str:
+    inner = f"""
+      <p style="font-size:16px; color:#071E3D;">Dear <b>{b['full_name']}</b>,</p>
+      <p style="color:#555; line-height:1.6;">Thank you for choosing <b>MakeYourVacation.in</b> for your upcoming journey. We've received your booking inquiry and one of our travel concierges will personally reach out to you within <b>24 hours</b> to craft your bespoke itinerary.</p>
+
+      <div style="background:#F7F7F7; border-left:4px solid #D4AF37; padding:18px; border-radius:8px; margin:22px 0;">
+        <div style="font-size:11px; color:#D4AF37; letter-spacing:2px; text-transform:uppercase; font-weight:700;">Your Booking Reference</div>
+        <div style="font-size:22px; color:#071E3D; font-family:'Playfair Display',Georgia,serif; font-weight:600; margin-top:4px;">{b['reference']}</div>
+      </div>
+
+      <h3 style="color:#071E3D; border-bottom:2px solid #D4AF37; padding-bottom:6px;">Your Trip at a Glance</h3>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0 22px;">
+        <tr><td style="padding:6px 0; color:#888; width:35%;">Package</td><td style="padding:6px 0; color:#071E3D; font-weight:600;">{b.get('package_name') or b['destination']}</td></tr>
+        <tr><td style="padding:6px 0; color:#888;">Destination</td><td style="padding:6px 0; color:#071E3D; font-weight:600;">{b['destination']}</td></tr>
+        <tr><td style="padding:6px 0; color:#888;">Travel Date</td><td style="padding:6px 0; color:#071E3D; font-weight:600;">{b['travel_date']}</td></tr>
+        <tr><td style="padding:6px 0; color:#888;">Travellers</td><td style="padding:6px 0; color:#071E3D; font-weight:600;">{b['adults']} adults · {b.get('children', 0)} children</td></tr>
+      </table>
+
+      <div style="text-align:center; margin:28px 0;">
+        <a href="https://wa.me/{CONTACT_PHONE_INTL}?text=Hi%2C%20my%20booking%20reference%20is%20{b['reference']}" style="display:inline-block; background:#D4AF37; color:#071E3D; text-decoration:none; padding:14px 32px; border-radius:999px; font-weight:700; letter-spacing:1px;">Chat with us on WhatsApp</a>
+      </div>
+
+      <p style="color:#555; line-height:1.6;">Meanwhile, if you have any special requests — dietary preferences, celebration dates, room configurations — simply reply to this email or WhatsApp us at <a href="https://wa.me/{CONTACT_PHONE_INTL}" style="color:#071E3D; font-weight:600;">{CONTACT_PHONE}</a>. We're here to make your journey extraordinary.</p>
+
+      <p style="color:#555; margin-top:26px;">Warm regards,<br/><b style="color:#071E3D; font-family:'Playfair Display',Georgia,serif;">The MakeYourVacation Team</b></p>
+
+      <hr style="border:none; border-top:1px solid #eee; margin:26px 0;"/>
+      <div style="color:#888; font-size:13px; text-align:center;">
+        <div><b>MakeYourVacation.in</b></div>
+        <div style="margin-top:4px;">📞 {CONTACT_PHONE} · ✉️ {CONTACT_EMAIL}</div>
+      </div>
+    """
+    return _luxury_email_shell(inner, subline="Booking Confirmation")
+
+
+async def send_booking_emails(booking: dict) -> dict:
+    admin_to = os.environ.get('BOOKING_EMAIL_TO', CONTACT_EMAIL)
+    admin_ok = False
+    customer_ok = False
     try:
-        await asyncio.to_thread(_send_email_sync, subject, html)
-        return True
+        await asyncio.to_thread(
+            _send_email_sync,
+            admin_to,
+            f"New Booking · {booking['reference']} · {booking['destination']}",
+            _admin_email_html(booking),
+            reply_to=booking['email'],
+        )
+        admin_ok = True
     except Exception as e:
-        logger.error(f"Email send failed: {e}")
-        return False
+        logger.error(f"Admin email failed: {e}")
+    try:
+        await asyncio.to_thread(
+            _send_email_sync,
+            booking['email'],
+            f"Your Booking Confirmation · {booking['reference']}",
+            _customer_email_html(booking),
+        )
+        customer_ok = True
+    except Exception as e:
+        logger.error(f"Customer email failed: {e}")
+    return {"admin_email_sent": admin_ok, "customer_email_sent": customer_ok}
 
 
 # ============ Helpers ============
@@ -198,6 +287,18 @@ def pkg_to_out(doc: dict) -> dict:
         "created_at": doc.get("created_at", ""),
         "updated_at": doc.get("updated_at", ""),
     }
+
+
+async def _next_booking_reference() -> str:
+    today = datetime.now(timezone.utc).strftime("%Y%m%d")
+    doc = await db.counters.find_one_and_update(
+        {"_id": f"booking_{today}"},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=True,
+    )
+    seq = doc["seq"] if doc else 1
+    return f"MYV-{today}-{seq:04d}"
 
 
 # ============ Routes ============
@@ -281,20 +382,104 @@ async def delete_package(pkg_id: str, admin=Depends(get_current_admin)):
 async def create_booking(payload: BookingIn):
     doc = payload.model_dump()
     doc["id"] = str(uuid.uuid4())
+    doc["reference"] = await _next_booking_reference()
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
-    doc["email_sent"] = False
+    doc["status"] = "New"
+    doc["admin_email_sent"] = False
+    doc["customer_email_sent"] = False
+
     await db.bookings.insert_one(doc)
-    sent = await send_booking_email(doc)
-    if sent:
-        await db.bookings.update_one({"id": doc["id"]}, {"$set": {"email_sent": True}})
+
+    result = await send_booking_emails(doc)
+    await db.bookings.update_one(
+        {"id": doc["id"]},
+        {"$set": {"admin_email_sent": result["admin_email_sent"], "customer_email_sent": result["customer_email_sent"]}}
+    )
+
     doc.pop("_id", None)
-    doc["email_sent"] = sent
-    return {"ok": True, "message": "Thank you! Your booking inquiry has been received. Our team will contact you shortly.", "booking_id": doc["id"], "email_sent": sent}
+    doc.update(result)
+    return {
+        "ok": True,
+        "message": f"Thank you! Your booking inquiry has been received. Our team will contact you shortly. Your reference: {doc['reference']}",
+        "booking_id": doc["id"],
+        "reference": doc["reference"],
+        "admin_email_sent": result["admin_email_sent"],
+        "customer_email_sent": result["customer_email_sent"],
+    }
+
 
 @api.get("/admin/bookings")
-async def list_bookings(admin=Depends(get_current_admin)):
-    docs = await db.bookings.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+async def list_bookings(
+    admin=Depends(get_current_admin),
+    status: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
+    from_date: Optional[str] = Query(None, alias="from"),
+    to_date: Optional[str] = Query(None, alias="to"),
+):
+    query = {}
+    if status and status != "All":
+        query["status"] = status
+    if q:
+        rx = {"$regex": q, "$options": "i"}
+        query["$or"] = [
+            {"full_name": rx}, {"email": rx}, {"mobile": rx},
+            {"destination": rx}, {"reference": rx}, {"package_name": rx},
+        ]
+    if from_date or to_date:
+        rng = {}
+        if from_date: rng["$gte"] = from_date
+        if to_date: rng["$lte"] = to_date + "T23:59:59"
+        query["created_at"] = rng
+
+    docs = await db.bookings.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
     return docs
+
+
+@api.patch("/admin/bookings/{booking_id}")
+async def update_booking_status(booking_id: str, payload: BookingStatusUpdate, admin=Depends(get_current_admin)):
+    result = await db.bookings.update_one(
+        {"id": booking_id},
+        {"$set": {"status": payload.status, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    updated = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+    return updated
+
+
+@api.get("/admin/bookings/export.csv")
+async def export_bookings_csv(admin=Depends(get_current_admin)):
+    docs = await db.bookings.find({}, {"_id": 0}).sort("created_at", -1).to_list(10000)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "Reference", "Status", "Created At", "Full Name", "Email", "Mobile",
+        "Destination", "Package", "Travel Date", "Adults", "Children",
+        "Message", "Admin Email Sent", "Customer Email Sent"
+    ])
+    for b in docs:
+        writer.writerow([
+            b.get("reference", ""), b.get("status", ""), b.get("created_at", ""),
+            b.get("full_name", ""), b.get("email", ""), b.get("mobile", ""),
+            b.get("destination", ""), b.get("package_name", ""), b.get("travel_date", ""),
+            b.get("adults", ""), b.get("children", 0),
+            (b.get("message", "") or "").replace("\n", " "),
+            b.get("admin_email_sent", False), b.get("customer_email_sent", False),
+        ])
+    buf.seek(0)
+    filename = f"bookings-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}.csv"
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@api.get("/admin/bookings/stats")
+async def bookings_stats(admin=Depends(get_current_admin)):
+    total = await db.bookings.count_documents({})
+    stats = {s: await db.bookings.count_documents({"status": s}) for s in BOOKING_STATUSES}
+    return {"total": total, "by_status": stats}
 
 
 # ============ Seeders ============
@@ -444,10 +629,21 @@ async def seed_packages():
     logger.info(f"Seeded {len(DEFAULT_PACKAGES)} default packages")
 
 
+async def backfill_bookings():
+    """Add reference + status to any older bookings that lack them."""
+    cursor = db.bookings.find({"$or": [{"reference": {"$exists": False}}, {"status": {"$exists": False}}]}, {"_id": 0, "id": 1})
+    async for old in cursor:
+        updates = {"status": "New"}
+        if "reference" not in old:
+            updates["reference"] = await _next_booking_reference()
+        await db.bookings.update_one({"id": old["id"]}, {"$set": updates})
+
+
 @app.on_event("startup")
 async def on_startup():
     await seed_admin()
     await seed_packages()
+    await backfill_bookings()
 
 @app.on_event("shutdown")
 async def on_shutdown():

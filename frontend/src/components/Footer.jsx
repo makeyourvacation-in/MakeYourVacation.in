@@ -41,7 +41,7 @@ export default function Footer() {
           <h4 className="section-eyebrow !text-white/60">Contact</h4>
           <ul className="mt-5 space-y-3 font-poppins text-sm text-white/80">
             <li className="flex items-start gap-3"><Mail size={16} className="text-gold mt-0.5" /> makeyourvacation.in@gmail.com</li>
-            <li className="flex items-start gap-3"><Phone size={16} className="text-gold mt-0.5" /> +91 7569805416</li>
+            <li className="flex items-start gap-3"><Phone size={16} className="text-gold mt-0.5" /> +91 7569508416</li>
             <li className="flex items-start gap-3"><MapPin size={16} className="text-gold mt-0.5" /> India</li>
           </ul>
         </div>

@@ -1,9 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
-import { api, formatApiError } from "@/lib/api";
+import { api, API, formatApiError } from "@/lib/api";
 import { toast } from "sonner";
-import { Plus, Edit3, Trash2, Star, LogOut, Package as PackageIcon, X, Save, ExternalLink } from "lucide-react";
+import { Plus, Edit3, Trash2, Star, LogOut, X, Save, ExternalLink, Search, Download, Mail, Phone, Copy } from "lucide-react";
+import ImageManager from "@/components/ImageManager";
+import { createUploader } from "@/lib/uploader";
+
+const STATUSES = ["All", "New", "Contacted", "Confirmed", "Cancelled", "Completed"];
+const STATUS_COLORS = {
+  New: "bg-blue-50 text-blue-700 border-blue-200",
+  Contacted: "bg-amber-50 text-amber-700 border-amber-200",
+  Confirmed: "bg-green-50 text-green-700 border-green-200",
+  Cancelled: "bg-red-50 text-red-700 border-red-200",
+  Completed: "bg-navy/5 text-navy border-navy/20",
+};
 
 const EMPTY = {
   name: "",
@@ -24,43 +35,95 @@ const EMPTY = {
   featured: false,
 };
 
+const uploader = createUploader(); // null until Cloudinary is wired
+
 export default function AdminDashboard() {
   const { admin, checking, logout } = useAuth();
   const nav = useNavigate();
   const [packages, setPackages] = useState([]);
-  const [editing, setEditing] = useState(null); // package object or "new"
+  const [editing, setEditing] = useState(null);
   const [tab, setTab] = useState("packages");
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // booking filters
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [q, setQ] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
 
   useEffect(() => {
     if (!checking && !admin) nav("/admin/login");
   }, [admin, checking, nav]);
 
-  const load = async () => {
-    setLoading(true);
+  const loadPackages = async () => {
     try {
-      const [pkgs, bks] = await Promise.all([
-        api.get("/packages"),
-        api.get("/admin/bookings").catch(() => ({ data: [] })),
-      ]);
-      setPackages(pkgs.data);
-      setBookings(bks.data);
+      const { data } = await api.get("/packages");
+      setPackages(data);
     } catch (e) { console.error(e); }
-    finally { setLoading(false); }
   };
-  useEffect(() => { if (admin) load(); }, [admin]);
+
+  const loadBookings = async () => {
+    try {
+      const params = {};
+      if (statusFilter && statusFilter !== "All") params.status = statusFilter;
+      if (q) params.q = q;
+      if (fromDate) params.from = fromDate;
+      if (toDate) params.to = toDate;
+      const { data } = await api.get("/admin/bookings", { params });
+      setBookings(data);
+    } catch (e) { console.error(e); }
+  };
+
+  useEffect(() => {
+    if (!admin) return;
+    (async () => {
+      setLoading(true);
+      await Promise.all([loadPackages(), loadBookings()]);
+      setLoading(false);
+    })();
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [admin]);
+
+  // reload bookings on filter change (debounced by short delay)
+  useEffect(() => {
+    if (!admin) return;
+    const t = setTimeout(loadBookings, 200);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, q, fromDate, toDate]);
+
+  const stats = useMemo(() => {
+    const s = { total: bookings.length };
+    STATUSES.filter((x) => x !== "All").forEach((k) => { s[k] = bookings.filter((b) => b.status === k).length; });
+    return s;
+  }, [bookings]);
 
   const del = async (id) => {
     if (!window.confirm("Delete this package permanently?")) return;
     try {
       await api.delete(`/admin/packages/${id}`);
       toast.success("Package deleted");
-      load();
+      loadPackages();
     } catch (err) { toast.error(formatApiError(err.response?.data?.detail)); }
   };
 
+  const changeStatus = async (id, next) => {
+    try {
+      await api.patch(`/admin/bookings/${id}`, { status: next });
+      toast.success(`Marked as ${next}`);
+      loadBookings();
+    } catch (err) { toast.error(formatApiError(err.response?.data?.detail)); }
+  };
+
+  const exportCsv = () => {
+    // trigger download via full URL (browser handles cookie)
+    const url = `${API}/admin/bookings/export.csv`;
+    window.open(url, "_blank");
+  };
+
   const doLogout = async () => { await logout(); nav("/admin/login"); };
+  const copyRef = (r) => { navigator.clipboard.writeText(r); toast.success("Reference copied"); };
 
   if (checking || !admin) return null;
 
@@ -92,6 +155,7 @@ export default function AdminDashboard() {
                 <div className="relative aspect-[16/10] overflow-hidden">
                   <img src={p.hero_image} alt={p.name} className="w-full h-full object-cover" />
                   {p.featured && <div className="absolute top-3 left-3 bg-gold text-navy text-[10px] font-montserrat uppercase tracking-[0.2em] font-semibold px-3 py-1 rounded-full flex items-center gap-1"><Star size={10} className="fill-current"/> Featured</div>}
+                  {p.gallery?.length > 0 && <div className="absolute bottom-3 right-3 bg-navy/70 text-white text-[10px] font-montserrat px-2 py-1 rounded-full">{1 + p.gallery.length} images</div>}
                 </div>
                 <div className="p-5">
                   <div className="text-xs text-gold font-montserrat uppercase tracking-[0.18em]">{p.destination}</div>
@@ -109,61 +173,151 @@ export default function AdminDashboard() {
         )}
 
         {tab === "bookings" && (
-          <div className="bg-white rounded-2xl luxury-shadow overflow-hidden">
-            {bookings.length === 0 ? <div className="p-10 text-center text-navy/50 font-poppins" data-testid="admin-bookings-empty">No bookings yet.</div> :
-              <table className="w-full text-sm font-poppins">
-                <thead className="bg-softgray text-navy/60 text-xs font-montserrat uppercase tracking-wider">
-                  <tr>
-                    <th className="text-left p-4">Name</th><th className="text-left p-4">Destination</th><th className="text-left p-4">Date</th><th className="text-left p-4">Contact</th><th className="text-left p-4">Pax</th><th className="text-left p-4">Email Sent</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {bookings.map((b) => (
-                    <tr key={b.id} data-testid={`admin-booking-${b.id}`} className="border-t border-navy/5 hover:bg-softgray/50">
-                      <td className="p-4 text-navy font-medium">{b.full_name}</td>
-                      <td className="p-4 text-navy/70">{b.destination}<div className="text-xs text-navy/40">{b.package_name || ""}</div></td>
-                      <td className="p-4 text-navy/70">{b.travel_date}</td>
-                      <td className="p-4 text-navy/70">{b.email}<div className="text-xs text-navy/40">{b.mobile}</div></td>
-                      <td className="p-4 text-navy/70">{b.adults}A · {b.children}C</td>
-                      <td className="p-4">{b.email_sent ? <span className="text-green-600 text-xs">✓ Sent</span> : <span className="text-red-500 text-xs">Failed</span>}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            }
+          <div className="space-y-6">
+            {/* Stats */}
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+              <StatBox label="Total" value={stats.total} onClick={() => setStatusFilter("All")} active={statusFilter === "All"} />
+              {STATUSES.filter((s) => s !== "All").map((s) => (
+                <StatBox key={s} label={s} value={stats[s] || 0} onClick={() => setStatusFilter(s)} active={statusFilter === s} />
+              ))}
+            </div>
+
+            {/* Filters */}
+            <div className="bg-white rounded-2xl luxury-shadow p-4 flex flex-wrap gap-3 items-center">
+              <div className="flex-1 min-w-[220px] relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-navy/40" />
+                <input data-testid="admin-bookings-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search reference, name, email, destination…" className="w-full pl-9 pr-3 py-2 rounded-full border border-navy/15 text-sm font-poppins focus:outline-none focus:border-gold" />
+              </div>
+              <label className="text-xs font-montserrat uppercase tracking-wider text-navy/60 flex items-center gap-2">From
+                <input data-testid="admin-bookings-from" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="border border-navy/15 rounded-full px-3 py-1.5 text-xs" />
+              </label>
+              <label className="text-xs font-montserrat uppercase tracking-wider text-navy/60 flex items-center gap-2">To
+                <input data-testid="admin-bookings-to" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="border border-navy/15 rounded-full px-3 py-1.5 text-xs" />
+              </label>
+              <button data-testid="admin-bookings-clear" onClick={() => { setQ(""); setFromDate(""); setToDate(""); setStatusFilter("All"); }} className="text-xs font-montserrat uppercase tracking-wider text-navy/60 hover:text-navy px-3">Clear</button>
+              <button data-testid="admin-bookings-export-csv" onClick={exportCsv} className="btn-navy !py-2 !px-4 text-xs"><Download size={12}/> Export CSV</button>
+            </div>
+
+            {/* Table */}
+            <div className="bg-white rounded-2xl luxury-shadow overflow-hidden">
+              {bookings.length === 0 ? (
+                <div className="p-10 text-center text-navy/50 font-poppins" data-testid="admin-bookings-empty">No bookings match your filters.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm font-poppins">
+                    <thead className="bg-softgray text-navy/60 text-[10px] font-montserrat uppercase tracking-wider">
+                      <tr>
+                        <th className="text-left p-4">Reference</th>
+                        <th className="text-left p-4">Customer</th>
+                        <th className="text-left p-4">Trip</th>
+                        <th className="text-left p-4">Travel Date</th>
+                        <th className="text-left p-4">Pax</th>
+                        <th className="text-left p-4">Status</th>
+                        <th className="text-left p-4">Email</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bookings.map((b) => (
+                        <tr key={b.id} data-testid={`admin-booking-${b.id}`} className="border-t border-navy/5 hover:bg-softgray/50 align-top">
+                          <td className="p-4">
+                            <button onClick={() => copyRef(b.reference)} className="flex items-center gap-1.5 text-navy font-semibold text-xs font-montserrat hover:text-gold transition-colors">
+                              {b.reference || "—"} <Copy size={11} className="opacity-40"/>
+                            </button>
+                            <div className="text-[10px] text-navy/40 mt-1">{b.created_at ? new Date(b.created_at).toLocaleString() : ""}</div>
+                          </td>
+                          <td className="p-4">
+                            <div className="text-navy font-medium">{b.full_name}</div>
+                            <a href={`mailto:${b.email}`} className="text-xs text-navy/60 hover:text-gold flex items-center gap-1 mt-0.5"><Mail size={10}/> {b.email}</a>
+                            <a href={`tel:${b.mobile}`} className="text-xs text-navy/60 hover:text-gold flex items-center gap-1"><Phone size={10}/> {b.mobile}</a>
+                          </td>
+                          <td className="p-4">
+                            <div className="text-navy">{b.destination}</div>
+                            <div className="text-xs text-navy/50">{b.package_name || "—"}</div>
+                          </td>
+                          <td className="p-4 text-navy/80 whitespace-nowrap">{b.travel_date}</td>
+                          <td className="p-4 text-navy/70 whitespace-nowrap">{b.adults}A · {b.children || 0}C</td>
+                          <td className="p-4">
+                            <select
+                              data-testid={`admin-booking-status-${b.id}`}
+                              value={b.status || "New"}
+                              onChange={(e) => changeStatus(b.id, e.target.value)}
+                              className={`text-xs font-montserrat font-semibold px-2.5 py-1.5 rounded-full border cursor-pointer focus:outline-none ${STATUS_COLORS[b.status || "New"]}`}
+                            >
+                              {STATUSES.filter((s) => s !== "All").map((s) => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                          </td>
+                          <td className="p-4 text-xs">
+                            <div className={b.admin_email_sent ? "text-green-600" : "text-red-500"}>Admin: {b.admin_email_sent ? "✓" : "✕"}</div>
+                            <div className={b.customer_email_sent ? "text-green-600" : "text-red-500"}>Guest: {b.customer_email_sent ? "✓" : "✕"}</div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
 
-      {editing && <EditModal pkg={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+      {editing && <EditModal pkg={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); loadPackages(); }} />}
     </div>
+  );
+}
+
+function StatBox({ label, value, onClick, active }) {
+  return (
+    <button
+      data-testid={`admin-stat-${label.toLowerCase()}`}
+      onClick={onClick}
+      className={`rounded-2xl p-4 text-left transition-all ${active ? "bg-navy text-white shadow-lg" : "bg-white hover:shadow-md"}`}
+    >
+      <div className={`text-[10px] font-montserrat uppercase tracking-[0.18em] ${active ? "text-gold" : "text-navy/50"}`}>{label}</div>
+      <div className={`text-3xl font-playfair font-semibold mt-1 ${active ? "text-white" : "text-navy"}`}>{value}</div>
+    </button>
   );
 }
 
 function EditModal({ pkg, onClose, onSaved }) {
   const isNew = !pkg.id;
-  const [form, setForm] = useState({ ...pkg });
+  // combine hero_image + gallery into single ordered images[] for the manager
+  const initialImages = pkg.hero_image ? [pkg.hero_image, ...(pkg.gallery || []).filter((g) => g !== pkg.hero_image)] : [];
+  const [form, setForm] = useState({ ...pkg, images: initialImages });
   const [saving, setSaving] = useState(false);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const asList = (str) => str.split("\n").map((s) => s.trim()).filter(Boolean);
 
   const save = async () => {
-    if (!form.name || !form.destination || !form.hero_image) {
-      toast.error("Name, destination and hero image are required");
+    if (!form.name || !form.destination) {
+      toast.error("Name and destination are required");
+      return;
+    }
+    if (!form.images || form.images.length === 0) {
+      toast.error("Please add at least one image (URL). Cloudinary upload will be enabled soon.");
       return;
     }
     setSaving(true);
     try {
+      const [cover, ...rest] = form.images;
       const payload = {
-        ...form,
+        name: form.name,
+        destination: form.destination,
+        duration: form.duration,
         price: parseFloat(form.price) || 0,
+        hero_image: cover,
+        gallery: rest,
+        short_description: form.short_description || "",
         highlights: Array.isArray(form.highlights) ? form.highlights : asList(form.highlights || ""),
         inclusions: Array.isArray(form.inclusions) ? form.inclusions : asList(form.inclusions || ""),
         exclusions: Array.isArray(form.exclusions) ? form.exclusions : asList(form.exclusions || ""),
-        gallery: Array.isArray(form.gallery) ? form.gallery : asList(form.gallery || ""),
+        hotel_details: form.hotel_details || "",
+        meals: form.meals || "",
+        transportation: form.transportation || "",
         itinerary: (form.itinerary || []).filter((d) => d.title || d.description),
         faqs: (form.faqs || []).filter((f) => f.question),
+        featured: !!form.featured,
       };
       if (isNew) {
         await api.post("/admin/packages", payload);
@@ -194,13 +348,25 @@ function EditModal({ pkg, onClose, onSaved }) {
           <F label="Destination *"><input data-testid="edit-destination" value={form.destination} onChange={(e) => set("destination", e.target.value)} className={inputCls}/></F>
           <F label="Duration"><input data-testid="edit-duration" value={form.duration} onChange={(e) => set("duration", e.target.value)} className={inputCls} placeholder="5 Days / 4 Nights"/></F>
           <F label="Starting Price (₹)"><input data-testid="edit-price" type="number" value={form.price} onChange={(e) => set("price", e.target.value)} className={inputCls}/></F>
-          <F label="Hero Image URL *" full><input data-testid="edit-hero-image" value={form.hero_image} onChange={(e) => set("hero_image", e.target.value)} className={inputCls}/></F>
           <F label="Short Description" full><textarea data-testid="edit-short-desc" rows={2} value={form.short_description} onChange={(e) => set("short_description", e.target.value)} className={inputCls}/></F>
+        </div>
+
+        {/* Images */}
+        <div className="mt-6">
+          <div className="text-[10px] font-montserrat uppercase tracking-[0.2em] text-navy/60 mb-2">Package Images * · <span className="text-gold">first image is the cover</span></div>
+          <ImageManager
+            value={form.images || []}
+            onChange={(arr) => set("images", arr)}
+            uploader={uploader}
+            testIdPrefix="pkg-img"
+          />
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-5 mt-6">
           <F label="Highlights (one per line)"><textarea data-testid="edit-highlights" rows={4} value={listVal(form.highlights)} onChange={(e) => set("highlights", asList(e.target.value))} className={inputCls}/></F>
-          <F label="Gallery Image URLs (one per line)"><textarea data-testid="edit-gallery" rows={4} value={listVal(form.gallery)} onChange={(e) => set("gallery", asList(e.target.value))} className={inputCls}/></F>
           <F label="Inclusions (one per line)"><textarea data-testid="edit-inclusions" rows={4} value={listVal(form.inclusions)} onChange={(e) => set("inclusions", asList(e.target.value))} className={inputCls}/></F>
           <F label="Exclusions (one per line)"><textarea data-testid="edit-exclusions" rows={4} value={listVal(form.exclusions)} onChange={(e) => set("exclusions", asList(e.target.value))} className={inputCls}/></F>
-          <F label="Hotel Details" full><textarea data-testid="edit-hotel" rows={2} value={form.hotel_details} onChange={(e) => set("hotel_details", e.target.value)} className={inputCls}/></F>
+          <F label="Hotel Details"><textarea data-testid="edit-hotel" rows={4} value={form.hotel_details} onChange={(e) => set("hotel_details", e.target.value)} className={inputCls}/></F>
           <F label="Meals"><input data-testid="edit-meals" value={form.meals} onChange={(e) => set("meals", e.target.value)} className={inputCls}/></F>
           <F label="Transportation"><input data-testid="edit-transport" value={form.transportation} onChange={(e) => set("transportation", e.target.value)} className={inputCls}/></F>
         </div>
@@ -234,13 +400,6 @@ function EditModal({ pkg, onClose, onSaved }) {
           <input data-testid="edit-featured" type="checkbox" checked={!!form.featured} onChange={(e) => set("featured", e.target.checked)} className="w-4 h-4 accent-gold" />
           <span className="text-sm font-poppins text-navy">Mark as Featured (shows on homepage)</span>
         </label>
-
-        {form.hero_image && (
-          <div className="mt-6">
-            <div className="text-[10px] font-montserrat uppercase tracking-[0.2em] text-navy/60 mb-2">Preview</div>
-            <img src={form.hero_image} alt="Preview" className="w-full h-48 object-cover rounded-xl" />
-          </div>
-        )}
 
         <div className="mt-8 flex justify-end gap-3">
           <button onClick={onClose} className="px-6 py-2.5 rounded-full border border-navy/15 text-navy text-sm font-montserrat uppercase tracking-wider">Cancel</button>

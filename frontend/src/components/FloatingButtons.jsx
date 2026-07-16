@@ -13,7 +13,7 @@ export default function FloatingButtons() {
   return (
     <>
       <a
-        href="https://wa.me/917569805416?text=Hi%20MakeYourVacation%2C%20I%27d%20like%20to%20plan%20a%20trip."
+        href="https://wa.me/917569508416?text=Hi%20MakeYourVacation%2C%20I%27d%20like%20to%20plan%20a%20trip."
         target="_blank"
         rel="noopener noreferrer"
         data-testid="floating-whatsapp-btn"
