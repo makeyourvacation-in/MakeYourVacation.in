@@ -1,0 +1,176 @@
+{
+  "theme": "light",
+  "typography": {
+    "imports": [
+      "@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Poppins:wght@300;400;500;600&display=swap');"
+    ],
+    "heading_font": "font-playfair",
+    "body_font": "font-poppins",
+    "button_font": "font-montserrat",
+    "hierarchy": {
+      "h1": "text-5xl md:text-6xl+ font-playfair font-semibold tracking-tight leading-tight text-primary",
+      "h2": "text-3xl md:text-4xl font-playfair font-medium tracking-tight text-primary",
+      "h3": "text-2xl font-playfair font-medium text-primary",
+      "body": "text-base font-poppins text-gray-700 leading-relaxed",
+      "label_overline": "text-sm font-montserrat uppercase tracking-[0.2em] font-medium text-gold"
+    }
+  },
+  "colors": {
+    "primary": "#071E3D",
+    "primary_light": "#0A2A57",
+    "gold": "#D4AF37",
+    "gold_light": "#E8C96B",
+    "gold_dark": "#B08D24",
+    "white": "#FFFFFF",
+    "gray_soft": "#F7F7F7",
+    "gray_dark": "#333333",
+    "overlay": "rgba(7, 30, 61, 0.5)",
+    "glass_bg": "rgba(255, 255, 255, 0.85)"
+  },
+  "visual_enhancers": {
+    "glassmorphism": "backdrop-blur-xl bg-white/80 border border-white/20 shadow-sm",
+    "shadows": "shadow-[0_8px_30px_rgba(7,30,61,0.08)] hover:shadow-[0_20px_40px_rgba(7,30,61,0.15)]",
+    "radius": "rounded-2xl",
+    "hover_effects": "transition-all duration-500 ease-out hover:-translate-y-1",
+    "image_zoom": "overflow-hidden group hover:[&>img]:scale-105 [&>img]:transition-transform [&>img]:duration-700 [&>img]:ease-out"
+  },
+  "layouts": {
+    "container": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+    "section_padding": "py-24 md:py-32",
+    "bento_grid": "grid grid-cols-1 md:grid-cols-12 gap-8"
+  },
+  "components": {
+    "nav_bar": {
+      "type": "Sticky Transparent to Solid",
+      "description": "Fixed header that is glassmorphic or transparent (`bg-transparent`) over hero images. Transitions to solid white (`bg-white/95 backdrop-blur-md shadow-sm`) on scroll. Links use `font-montserrat text-sm uppercase tracking-wider`. CRITICAL: DO NOT use complete transparent background if content under it compromises legibility."
+    },
+    "hero_section": {
+      "description": "Full-height (min-h-[90vh]) immersive hero with a high-res image and a subtle primary color overlay (`bg-[#071E3D]/40`). Content must be vertically centered. Primary CTA is solid Gold, Secondary CTA is an outline button with Gold/White text.",
+      "image": "Use the luxury travel hero image."
+    },
+    "package_card": {
+      "description": "Luxury package card. Top half is image with a subtle zoom on hover. Bottom half uses crisp white background or glassmorphism. Typography: Playfair for title, Poppins for description. Price highlighted in Gold.",
+      "pattern": "Relative wrapper -> Image (object-cover, h-64) -> Absolute top-right badge for duration -> Content block (p-6) -> Title -> Dest & Highlights -> Footer with Price and 'Book Now' button."
+    },
+    "buttons": {
+      "primary": "bg-[#D4AF37] hover:bg-[#B08D24] text-white font-montserrat font-medium px-8 py-3 rounded-full transition-colors duration-300",
+      "secondary": "border border-[#D4AF37] text-[#D4AF37] hover:bg-[#D4AF37] hover:text-white font-montserrat font-medium px-8 py-3 rounded-full transition-all duration-300",
+      "floating_whatsapp": "fixed bottom-6 right-6 bg-[#25D366] text-white p-4 rounded-full shadow-lg hover:scale-110 transition-transform z-50",
+      "back_to_top": "fixed bottom-6 left-6 bg-[#071E3D] text-white p-3 rounded-full shadow-lg hover:scale-110 transition-transform z-50 opacity-0 data-[visible=true]:opacity-100"
+    }
+  },
+  "image_urls": {
+    "hero": [
+      {
+        "url": "https://images.unsplash.com/photo-1602002418816-5c0aeef426aa?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njd8MHwxfHNlYXJjaHwxfHxsdXh1cnklMjB2YWNhdGlvbnxlbnwwfHx8fDE3ODQyMjk0NTV8MA&ixlib=rb-4.1.0&q=85",
+        "category": "hero",
+        "description": "Luxury bench on beach, high end feel"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1549294413-26f195200c16?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njd8MHwxfHNlYXJjaHw0fHxsdXh1cnklMjB2YWNhdGlvbnxlbnwwfHx8fDE3ODQyMjk0NTV8MA&ixlib=rb-4.1.0&q=85",
+        "category": "hero_alternative",
+        "description": "Luxury pool surrounded by palm trees"
+      }
+    ],
+    "destinations": [
+      {
+        "url": "https://images.unsplash.com/photo-1666545381732-b1cc6785ce3c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzh8MHwxfHNlYXJjaHw0fHxrYXNobWlyJTIwbW91bnRhaW5zJTIwZGFsJTIwbGFrZXxlbnwwfHx8fDE3ODQyMjk0Mzd8MA&ixlib=rb-4.1.0&q=85",
+        "category": "Kashmir",
+        "description": "Kashmir valley and river"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1609828913552-f9138ed9e42d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1NzZ8MHwxfHNlYXJjaHwxfHxrZXJhbGElMjBiYWNrd2F0ZXJzJTIwbHV4dXJ5JTIwYm9hdHxlbnwwfHx8fDE3ODQyMjk0Mzd8MA&ixlib=rb-4.1.0&q=85",
+        "category": "Kerala",
+        "description": "Kerala backwaters luxury boat"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1619344901057-d4dbeced24af?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NjZ8MHwxfHNlYXJjaHw0fHxtYW5hbGklMjBzbm93JTIwbW91bnRhaW5zfGVufDB8fHx8MTc4NDIyOTQzN3ww&ixlib=rb-4.1.0&q=85",
+        "category": "Manali",
+        "description": "Manali snow mountains"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1642516864726-a243f416fc00?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzd8MHwxfHNlYXJjaHw0fHxnb2ElMjBiZWFjaCUyMGx1eHVyeXxlbnwwfHx8fDE3ODQyMjk0NDh8MA&ixlib=rb-4.1.0&q=85",
+        "category": "Goa",
+        "description": "Goa beach view from high point"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1722428667804-4cc2f260848b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODl8MHwxfHNlYXJjaHw0fHx0cm9waWNhbCUyMGJlYWNoJTIwcmVzb3J0fGVufDB8fHx8MTc4NDIyOTQ1NHww&ixlib=rb-4.1.0&q=85",
+        "category": "Andaman",
+        "description": "Tropical beach resort with green plants"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1633259422382-5ead30efb697?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDF8MHwxfHNlYXJjaHw0fHxsZWglMjBsYWRha2glMjBsYW5kc2NhcGV8ZW58MHx8fHwxNzg0MjI5NDQ4fDA&ixlib=rb-4.1.0&q=85",
+        "category": "Leh Ladakh",
+        "description": "Leh ladakh large body of water surrounded by mountains"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1658051161493-1d311c4c7b4d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNTl8MHwxfHNlYXJjaHwzfHx0ZWElMjBnYXJkZW4lMjBtdW5uYXJ8ZW58MHx8fHwxNzg0MjI5NDU0fDA&ixlib=rb-4.1.0&q=85",
+        "category": "Munnar",
+        "description": "Tea garden Munnar green valley"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1455157823797-3019317cbcf0?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNTl8MHwxfHNlYXJjaHwxfHx0ZWElMjBnYXJkZW4lMjBtdW5uYXJ8ZW58MHx8fHwxNzg0MjI5NDU0fDA&ixlib=rb-4.1.0&q=85",
+        "category": "Ooty",
+        "description": "Hills covered with green plants"
+      }
+    ],
+    "gallery": [
+      {
+        "url": "https://images.pexels.com/photos/15490065/pexels-photo-15490065.jpeg",
+        "category": "gallery",
+        "description": "Luxury resort pool"
+      },
+      {
+        "url": "https://images.pexels.com/photos/7974839/pexels-photo-7974839.jpeg",
+        "category": "gallery",
+        "description": "Luxury hotel Dubai by night"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1605538108568-7f0d77a214c1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODl8MHwxfHNlYXJjaHwxfHx0cm9waWNhbCUyMGJlYWNoJTIwcmVzb3J0fGVufDB8fHx8MTc4NDIyOTQ1NHww&ixlib=rb-4.1.0&q=85",
+        "category": "gallery",
+        "description": "Tropical beach plants on white sand"
+      }
+    ],
+    "testimonials": [
+       {
+        "url": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NjAzMjV8MHwxfHNlYXJjaHwyfHxwb3J0cmFpdCUyMHdvbWFufGVufDB8fHx8MTY4NDIyOTQzOHww&ixlib=rb-4.0.3&q=80&w=200",
+        "category": "testimonial_avatar",
+        "description": "Testimonial person 1"
+       },
+       {
+        "url": "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NjAzMjV8MHwxfHNlYXJjaHwyfHxwb3J0cmFpdCUyMG1hbnxlbnwwfHx8fDE2ODQyMjk0Mzh8MA&ixlib=rb-4.0.3&q=80&w=200",
+        "category": "testimonial_avatar",
+        "description": "Testimonial person 2"
+       }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Configure tailwind.config.js to include custom colors (primary: #071E3D, gold: #D4AF37, etc.) and fontFamily configurations for playfair, poppins, montserrat.",
+    "IMPORTANT: This is a JS project. When adding or using Shadcn components, ensure they use .js/.jsx extensions instead of .tsx.",
+    "Do NOT use HTML <input type='date'>. Use the Shadcn Calendar component for date pickers.",
+    "Forms: Full Name, Mobile, Email, Destination, Travel Date, Adults, Children, Package, Message. Must use Shadcn form components, style them softly with rounded borders to reflect the luxury vibe.",
+    "Admin Dashboard: Build with a clean, high-density layout using Shadcn UI elements. Use a crisp white/soft gray background with primary navy text for high contrast authority.",
+    "Navigation: A sticky header is required. Over the hero section, it should be glassmorphic/transparent (ensure a dark overlay exists on the hero image for legibility). On scroll, it must transition to solid white.",
+    "Implement scroll animations using framer-motion (e.g., 'whileInView' to fade in cards and sections).",
+    "Floating Action Buttons: Add a WhatsApp button on the bottom right and a Back to Top button on the bottom left (visible only after scroll).",
+    "Add 'data-testid' to ALL interactive elements (buttons, forms, links) with kebab-case naming.",
+    "Use 'lucide-react' for professional, minimal icons."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "You tend to converge toward generic, 'on distribution' outputs. Make creative, distinctive frontends that surprise and delight.",
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "Use glass-morphism effects with backdrop filters (12-24px blur).",
+    "You MUST NOT apply universal transition (e.g., `transition: all`). Always add transitions for specific properties to avoid breaking transforms.",
+    "You MUST NOT center align the app container, i.e., do not add `.App { text-align: center; }` in the CSS file.",
+    "Always use modern button styles (pill-shaped or softly rounded) with interaction animations & color relevant to the app style.",
+    "NEVER use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 etc. for icons.",
+    "Every interaction needs micro-animations - hover states, transitions, parallax effects, and entrance animations. Static = dead.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "Subtle grain textures, custom selection states, and elegant loading animations separate good from extraordinary.",
+    "Main agent relies on these image URLs. Missing categories = main agent will use placeholder text, which is FORBIDDEN.",
+    "Prioritize using pre-existing components from `src/components/ui` when applicable.",
+    "Use `sonner` for toast notifications."
+  ]
+}
