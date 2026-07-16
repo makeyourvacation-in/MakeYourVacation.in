@@ -37,8 +37,16 @@ export default function Home() {
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await api.get("/packages", { params: { featured: true } });
-        setPackages(data);
+        const response = await api.get("/packages", {
+          params: { featured: true },
+        });
+
+        const packageData =
+          response.data?.packages ||
+          response.data?.data ||
+          (Array.isArray(response.data) ? response.data : []);
+
+        setPackages(packageData);
       } catch (e) { console.error(e); }
     })();
   }, []);
@@ -82,7 +90,10 @@ export default function Home() {
             <Link to="/packages" data-testid="view-all-packages-link" className="text-navy font-montserrat uppercase text-xs tracking-[0.22em] gold-underline">View All Packages →</Link>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-            {packages.map((p, i) => <PackageCard key={p.id} pkg={p} index={i} />)}
+            {Array.isArray(packages) &&
+              packages.map((p, i) => (
+                <PackageCard key={p.id} pkg={p} index={i} />
+              ))}
           </div>
         </div>
       </section>
