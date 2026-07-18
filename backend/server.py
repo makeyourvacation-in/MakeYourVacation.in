@@ -156,34 +156,56 @@ class BookingStatusUpdate(BaseModel):
 
 # ============ Email service ============
 def _send_email_sync(to_addr: str, subject: str, html_body: str, reply_to: str = None):
-    gmail_user = os.environ['GMAIL_USER']
-    gmail_pass = os.environ['GMAIL_APP_PASSWORD'].replace(" ", "")
+    gmail_user = os.environ["GMAIL_USER"]
+    gmail_pass = os.environ["GMAIL_APP_PASSWORD"].replace(" ", "")
+
+    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = f"MakeYourVacation.in <{gmail_user}>"
     msg["To"] = to_addr
+
     if reply_to:
         msg["Reply-To"] = reply_to
-    # Deliverability helpers
+
     msg["Message-ID"] = f"<{uuid.uuid4()}@makeyourvacation.in>"
-    msg["X-Mailer"] = "MakeYourVacation.in-API"
-    # Plain-text alternative (helps avoid spam classification)
-    plain = "This email contains an HTML message. Please view it in an HTML-capable email client."
+    msg["X-Mailer"] = "MakeYourVacation.in"
+
+    plain = "This email contains an HTML version."
     msg.attach(MIMEText(plain, "plain"))
     msg.attach(MIMEText(html_body, "html"))
 
-    logger.info(f"[SMTP] connecting to smtp.gmail.com:465 as {gmail_user} → to={to_addr} subject='{subject}'")
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as server:
-        server.ehlo()
-        server.login(gmail_user, gmail_pass)
-        refused = server.sendmail(gmail_user, [to_addr], msg.as_string())
-        if refused:
-            # sendmail returns dict of refused recipients; empty means all accepted
-            logger.error(f"[SMTP] some recipients refused: {refused}")
-            raise smtplib.SMTPRecipientsRefused(refused)
-    logger.info(f"[SMTP] delivered to {to_addr} — subject='{subject}'")
+    logger.info(f"[SMTP] Connecting to {smtp_host}:{smtp_port}")
 
+    try:
+        if smtp_port == 465:
+            server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=30)
+        else:
+            server = smtplib.SMTP(smtp_host, smtp_port, timeout=30)
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+
+        server.login(gmail_user, gmail_pass)
+
+        refused = server.sendmail(
+            gmail_user,
+            [to_addr],
+            msg.as_string()
+        )
+
+        server.quit()
+
+        if refused:
+            raise smtplib.SMTPRecipientsRefused(refused)
+
+        logger.info(f"[SMTP] Email sent successfully to {to_addr}")
+
+    except Exception:
+        logger.exception("[SMTP] Email sending failed")
+        raise
 
 def _luxury_email_shell(inner_html: str, headline: str = "MakeYourVacation.in", subline: str = "") -> str:
     return f"""
