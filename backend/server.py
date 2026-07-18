@@ -18,7 +18,10 @@ from typing import List, Optional, Literal
 
 import bcrypt
 import jwt
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, Query
+import cloudinary
+import cloudinary.uploader
+import cloudinary.utils
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -39,8 +42,24 @@ CONTACT_EMAIL = "makeyourvacation.in@gmail.com"
 app = FastAPI(title="MakeYourVacation.in API")
 api = APIRouter(prefix="/api")
 
+# ---- Logging (verbose for email + upload debugging) ----
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("myv")
+
+# ---- Cloudinary config ----
+CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME', '')
+CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_KEY', '')
+CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET', '')
+if CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET:
+    cloudinary.config(
+        cloud_name=CLOUDINARY_CLOUD_NAME,
+        api_key=CLOUDINARY_API_KEY,
+        api_secret=CLOUDINARY_API_SECRET,
+        secure=True,
+    )
+    logger.info(f"Cloudinary configured for cloud '{CLOUDINARY_CLOUD_NAME}'")
+else:
+    logger.warning("Cloudinary credentials missing — /api/admin/upload will return 500 until configured.")
 
 BOOKING_STATUSES = ["New", "Contacted", "Confirmed", "Cancelled", "Completed"]
 
@@ -146,11 +165,24 @@ def _send_email_sync(to_addr: str, subject: str, html_body: str, reply_to: str =
     msg["To"] = to_addr
     if reply_to:
         msg["Reply-To"] = reply_to
+    # Deliverability helpers
+    msg["Message-ID"] = f"<{uuid.uuid4()}@makeyourvacation.in>"
+    msg["X-Mailer"] = "MakeYourVacation.in-API"
+    # Plain-text alternative (helps avoid spam classification)
+    plain = "This email contains an HTML message. Please view it in an HTML-capable email client."
+    msg.attach(MIMEText(plain, "plain"))
     msg.attach(MIMEText(html_body, "html"))
 
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as server:
+    logger.info(f"[SMTP] connecting to smtp.gmail.com:465 as {gmail_user} → to={to_addr} subject='{subject}'")
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as server:
+        server.ehlo()
         server.login(gmail_user, gmail_pass)
-        server.sendmail(gmail_user, [to_addr], msg.as_string())
+        refused = server.sendmail(gmail_user, [to_addr], msg.as_string())
+        if refused:
+            # sendmail returns dict of refused recipients; empty means all accepted
+            logger.error(f"[SMTP] some recipients refused: {refused}")
+            raise smtplib.SMTPRecipientsRefused(refused)
+    logger.info(f"[SMTP] delivered to {to_addr} — subject='{subject}'")
 
 
 def _luxury_email_shell(inner_html: str, headline: str = "MakeYourVacation.in", subline: str = "") -> str:
@@ -240,19 +272,21 @@ def _customer_email_html(b: dict) -> str:
 
 async def send_booking_emails(booking: dict) -> dict:
     admin_to = os.environ.get('BOOKING_EMAIL_TO', CONTACT_EMAIL)
-    admin_ok = False
-    customer_ok = False
+    result = {"admin_email_sent": False, "customer_email_sent": False,
+              "admin_email_error": None, "customer_email_error": None}
     try:
         await asyncio.to_thread(
             _send_email_sync,
             admin_to,
             f"New Booking · {booking['reference']} · {booking['destination']}",
             _admin_email_html(booking),
-            reply_to=booking['email'],
+            booking['email'],
         )
-        admin_ok = True
+        result["admin_email_sent"] = True
     except Exception as e:
-        logger.error(f"Admin email failed: {e}")
+        result["admin_email_error"] = f"{type(e).__name__}: {e}"
+        logger.exception(f"[EMAIL] admin notify FAILED for {admin_to}: {e}")
+
     try:
         await asyncio.to_thread(
             _send_email_sync,
@@ -260,10 +294,12 @@ async def send_booking_emails(booking: dict) -> dict:
             f"Your Booking Confirmation · {booking['reference']}",
             _customer_email_html(booking),
         )
-        customer_ok = True
+        result["customer_email_sent"] = True
     except Exception as e:
-        logger.error(f"Customer email failed: {e}")
-    return {"admin_email_sent": admin_ok, "customer_email_sent": customer_ok}
+        result["customer_email_error"] = f"{type(e).__name__}: {e}"
+        logger.exception(f"[EMAIL] customer confirmation FAILED for {booking.get('email')}: {e}")
+
+    return result
 
 
 # ============ Helpers ============
@@ -397,7 +433,12 @@ async def create_booking(payload: BookingIn):
     result = await send_booking_emails(doc)
     await db.bookings.update_one(
         {"id": doc["id"]},
-        {"$set": {"admin_email_sent": result["admin_email_sent"], "customer_email_sent": result["customer_email_sent"]}}
+        {"$set": {
+            "admin_email_sent": result["admin_email_sent"],
+            "customer_email_sent": result["customer_email_sent"],
+            "admin_email_error": result.get("admin_email_error"),
+            "customer_email_error": result.get("customer_email_error"),
+        }}
     )
 
     doc.pop("_id", None)
@@ -484,6 +525,79 @@ async def bookings_stats(admin=Depends(get_current_admin)):
     total = await db.bookings.count_documents({})
     stats = {s: await db.bookings.count_documents({"status": s}) for s in BOOKING_STATUSES}
     return {"total": total, "by_status": stats}
+
+
+# ---- Test email (admin-only diagnostic) ----
+class TestEmailIn(BaseModel):
+    to: Optional[EmailStr] = None
+
+@api.post("/admin/test-email")
+async def test_email(payload: TestEmailIn, admin=Depends(get_current_admin)):
+    to_addr = payload.to or os.environ.get('BOOKING_EMAIL_TO', CONTACT_EMAIL)
+    subject = f"MakeYourVacation.in · Test Email · {datetime.now(timezone.utc).strftime('%d %b %Y %H:%M UTC')}"
+    body = _luxury_email_shell(
+        f"""
+          <p style="color:#071E3D; font-size:16px;">This is a test email from your MakeYourVacation.in admin panel.</p>
+          <p style="color:#555;">If you received this at <b>{to_addr}</b>, your Gmail SMTP integration is working correctly.</p>
+          <p style="color:#555; margin-top:16px;">Sent at: {datetime.now(timezone.utc).strftime('%d %b %Y, %H:%M UTC')}</p>
+        """,
+        subline="Test Email"
+    )
+    try:
+        await asyncio.to_thread(_send_email_sync, to_addr, subject, body)
+        return {"ok": True, "sent_to": to_addr, "message": f"Test email dispatched to {to_addr}. Check your Inbox (and Spam / All Mail folders)."}
+    except Exception as e:
+        logger.exception("[EMAIL] test_email failed")
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
+
+
+# ---- Cloudinary uploads (admin-only) ----
+ALLOWED_MIMES = {"image/jpeg", "image/jpg", "image/png", "image/webp"}
+MAX_UPLOAD_BYTES = 8 * 1024 * 1024  # 8 MB per image
+
+@api.post("/admin/upload")
+async def upload_image(file: UploadFile = File(...), admin=Depends(get_current_admin)):
+    if not CLOUDINARY_CLOUD_NAME:
+        raise HTTPException(status_code=500, detail="Cloudinary not configured on the server")
+    content_type = (file.content_type or "").lower()
+    if content_type not in ALLOWED_MIMES:
+        raise HTTPException(status_code=415, detail=f"Unsupported file type: {content_type or 'unknown'}. Allowed: JPG, PNG, WEBP.")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File too large. Max 8 MB per image.")
+    try:
+        result = await asyncio.to_thread(
+            cloudinary.uploader.upload,
+            data,
+            folder="makeyourvacation/packages",
+            resource_type="image",
+            transformation=[{"quality": "auto:good", "fetch_format": "auto"}],
+        )
+    except Exception as e:
+        logger.exception("[UPLOAD] Cloudinary upload failed")
+        raise HTTPException(status_code=502, detail=f"Upload failed: {e}")
+    return {
+        "url": result.get("secure_url"),
+        "public_id": result.get("public_id"),
+        "width": result.get("width"),
+        "height": result.get("height"),
+        "format": result.get("format"),
+        "bytes": result.get("bytes"),
+    }
+
+
+@api.delete("/admin/upload")
+async def delete_uploaded_image(public_id: str, admin=Depends(get_current_admin)):
+    if not CLOUDINARY_CLOUD_NAME:
+        raise HTTPException(status_code=500, detail="Cloudinary not configured on the server")
+    try:
+        result = await asyncio.to_thread(cloudinary.uploader.destroy, public_id, invalidate=True)
+        return {"ok": True, "result": result.get("result")}
+    except Exception as e:
+        logger.exception("[UPLOAD] Cloudinary delete failed")
+        raise HTTPException(status_code=502, detail=f"Delete failed: {e}")
 
 
 # ============ Seeders ============

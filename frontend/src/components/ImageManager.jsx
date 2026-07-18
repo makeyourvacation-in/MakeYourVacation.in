@@ -1,68 +1,48 @@
-import { useState } from "react";
-import { Plus, Trash2, Star, ChevronUp, ChevronDown, ImagePlus, UploadCloud, GripVertical } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Trash2, Star, ChevronUp, ChevronDown, UploadCloud, GripVertical, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 /**
- * ImageManager — modular image list manager with drag-and-drop reordering.
+ * ImageManager — direct file uploads (via backend → Cloudinary).
  *
  * Data model:
- *   `images`: string[] — ordered array of image URLs. Index 0 is the cover / hero.
+ *   `images`: string[] — ordered array of hosted image URLs. Index 0 is the cover / hero.
  *
  * Props:
- *   - value: string[]        — controlled list of image URLs
+ *   - value: string[]           — controlled list of image URLs
  *   - onChange: (arr) => void
- *   - uploader?: (file: File) => Promise<string>  — OPTIONAL. Wire this to Cloudinary
- *     (or any object storage). When present, the "Upload from device" button becomes active.
- *     The function must upload the file and return the hosted URL.
- *   - maxImages?: number     — hard cap, defaults to 5
- *   - testIdPrefix?: string  — prefix for data-testids
+ *   - uploader: (file, onProgress) => Promise<{ url, public_id }>  — REQUIRED. Wired to backend.
+ *   - maxImages?: number        — hard cap, defaults to 5
+ *   - testIdPrefix?: string     — prefix for data-testids
  *
  * Reorder methods available:
- *   - Native HTML5 drag & drop (grab the card / handle and drop onto another card)
- *   - Up/Down arrows (touch/keyboard friendly)
+ *   - Native HTML5 drag & drop (grab the card and drop onto another card)
+ *   - Left/Right arrows (touch/keyboard friendly)
  *   - "Set as cover" star button (promotes to index 0)
- *
- * Future Cloudinary integration:
- *   1. Create an unsigned upload preset in Cloudinary.
- *   2. Provide `uploader` prop that POSTs to
- *      `https://api.cloudinary.com/v1_1/<cloud_name>/image/upload`
- *      with `file` + `upload_preset`, returning `data.secure_url`.
- *   No other change is required in this file or the calling admin dashboard.
  */
+
+const ALLOWED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+const ALLOWED_EXT = ".jpg,.jpeg,.png,.webp";
+const MAX_BYTES = 8 * 1024 * 1024;
+
 export default function ImageManager({
   value = [],
   onChange,
-  uploader = null,
+  uploader,
   maxImages = 5,
   testIdPrefix = "img",
 }) {
-  const [url, setUrl] = useState("");
-  const [uploading, setUploading] = useState(false);
+  const inputRef = useRef(null);
+  const valueRef = useRef(value);
+  useEffect(() => { valueRef.current = value; }, [value]);
+  const [uploads, setUploads] = useState({});   // { tempId: { name, percent, error } }
   const [dragIndex, setDragIndex] = useState(null);
   const [overIndex, setOverIndex] = useState(null);
 
   const setImages = (arr) => onChange(arr);
   const atMax = value.length >= maxImages;
   const remaining = Math.max(0, maxImages - value.length);
-
-  const addUrl = () => {
-    if (atMax) {
-      toast.error(`Maximum ${maxImages} images per package.`);
-      return;
-    }
-    const trimmed = url.trim();
-    if (!trimmed) return;
-    if (!/^https?:\/\//i.test(trimmed)) {
-      toast.error("Please enter a valid http(s) URL.");
-      return;
-    }
-    if (value.includes(trimmed)) {
-      toast.info("Image already added.");
-      return;
-    }
-    setImages([...value, trimmed]);
-    setUrl("");
-  };
+  const currentlyUploading = Object.values(uploads).filter((u) => !u.done && !u.error).length;
 
   const remove = (idx) => setImages(value.filter((_, i) => i !== idx));
 
@@ -82,7 +62,7 @@ export default function ImageManager({
     setImages(arr);
   };
 
-  // ---------- Drag & Drop ----------
+  // ---------- Drag & Drop reordering ----------
   const onDragStart = (idx) => (e) => {
     setDragIndex(idx);
     e.dataTransfer.effectAllowed = "move";
@@ -107,45 +87,66 @@ export default function ImageManager({
   };
   const onDragEnd = () => { setDragIndex(null); setOverIndex(null); };
 
-  // ---------- File uploads (optional) ----------
-  const onUpload = async (files) => {
+  // ---------- File uploads ----------
+  const onFilesPicked = async (files) => {
     if (!uploader) {
-      toast.info("Direct upload will be enabled once Cloudinary is connected. For now, please paste an image URL.");
+      toast.error("Upload is not configured. Please contact the site admin.");
       return;
     }
-    const slots = maxImages - value.length;
+    let list = Array.from(files);
+
+    // Validate types
+    const valid = [];
+    for (const f of list) {
+      if (!ALLOWED_TYPES.includes((f.type || "").toLowerCase())) {
+        toast.error(`${f.name}: unsupported type. Allowed: JPG, PNG, WEBP.`);
+        continue;
+      }
+      if (f.size > MAX_BYTES) {
+        toast.error(`${f.name}: too large. Max 8 MB per image.`);
+        continue;
+      }
+      valid.push(f);
+    }
+
+    // Trim to remaining slots
+    const slots = maxImages - value.length - currentlyUploading;
     if (slots <= 0) {
       toast.error(`Maximum ${maxImages} images per package.`);
       return;
     }
-    const list = Array.from(files).slice(0, slots);
-    if (files.length > list.length) {
-      toast.info(`Only the first ${slots} image${slots > 1 ? "s" : ""} were uploaded (max ${maxImages} per package).`);
+    if (valid.length > slots) {
+      toast.info(`Only the first ${slots} image${slots > 1 ? "s" : ""} will be uploaded (max ${maxImages}).`);
+      valid.splice(slots);
     }
-    setUploading(true);
-    try {
-      const uploaded = [];
-      for (const f of list) {
-        try {
-          const url = await uploader(f);
-          if (url) uploaded.push(url);
-        } catch (e) {
-          console.error(e);
-          toast.error(`Upload failed for ${f.name}`);
-        }
+
+    // Upload sequentially (Cloudinary is fine with parallel too, sequential is safer for progress UX)
+    for (const file of valid) {
+      const tempId = `${file.name}-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
+      setUploads((u) => ({ ...u, [tempId]: { name: file.name, percent: 0 } }));
+      try {
+        const { url } = await uploader(file, (p) =>
+          setUploads((u) => (u[tempId] ? { ...u, [tempId]: { ...u[tempId], percent: p } } : u))
+        );
+        setUploads((u) => ({ ...u, [tempId]: { ...u[tempId], percent: 100, done: true } }));
+        // Append using latest value from ref (avoids stale-closure with sequential uploads)
+        const next = [...valueRef.current, url];
+        valueRef.current = next;
+        onChange(next);
+        setTimeout(() => setUploads((u) => { const n = { ...u }; delete n[tempId]; return n; }), 800);
+      } catch (err) {
+        setUploads((u) => ({ ...u, [tempId]: { ...u[tempId], error: err.message } }));
+        toast.error(`${file.name}: ${err.message}`);
+        setTimeout(() => setUploads((u) => { const n = { ...u }; delete n[tempId]; return n; }), 4000);
       }
-      if (uploaded.length) {
-        setImages([...value, ...uploaded]);
-        toast.success(`Uploaded ${uploaded.length} image${uploaded.length > 1 ? "s" : ""}`);
-      }
-    } finally {
-      setUploading(false);
     }
+
+    if (inputRef.current) inputRef.current.value = "";
   };
 
   return (
     <div data-testid={`${testIdPrefix}-manager`} className="space-y-4">
-      {/* Header row: count + hint */}
+      {/* Header row: count */}
       <div className="flex items-center justify-between text-xs font-poppins">
         <span className="text-navy/60">
           <b className="text-navy">{value.length}</b> / {maxImages} images
@@ -156,55 +157,70 @@ export default function ImageManager({
         )}
       </div>
 
-      {/* URL input */}
-      <div className="flex gap-2">
-        <input
-          data-testid={`${testIdPrefix}-url-input`}
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addUrl())}
-          disabled={atMax}
-          placeholder={atMax ? `Maximum ${maxImages} images reached` : "Paste an image URL (https://…)"}
-          className="flex-1 bg-white border border-navy/15 rounded-xl px-4 py-2.5 text-sm font-poppins text-navy focus:outline-none focus:border-gold focus:ring-1 focus:ring-gold/40 disabled:bg-softgray/60 disabled:text-navy/40 disabled:cursor-not-allowed"
-        />
-        <button
-          type="button"
-          data-testid={`${testIdPrefix}-add-url-btn`}
-          onClick={addUrl}
-          disabled={atMax}
-          className="px-4 py-2 rounded-xl bg-navy text-white text-xs font-montserrat uppercase tracking-wider flex items-center gap-2 hover:bg-navy-light transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <Plus size={14}/> Add
-        </button>
-      </div>
-
-      {/* Upload placeholder (Cloudinary-ready) */}
-      <label
-        data-testid={`${testIdPrefix}-upload-label`}
-        className={`flex items-center justify-center gap-3 border-2 border-dashed rounded-xl py-5 text-sm font-poppins transition-colors ${
-          uploader && !atMax ? "border-gold/60 text-navy hover:bg-gold/5 cursor-pointer" : "border-navy/15 text-navy/50 bg-softgray/50 cursor-not-allowed"
+      {/* Upload zone */}
+      <input
+        ref={inputRef}
+        data-testid={`${testIdPrefix}-file-input`}
+        type="file"
+        accept={ALLOWED_EXT}
+        multiple
+        className="hidden"
+        onChange={(e) => e.target.files && onFilesPicked(e.target.files)}
+      />
+      <button
+        type="button"
+        data-testid={`${testIdPrefix}-upload-btn`}
+        onClick={() => inputRef.current?.click()}
+        disabled={atMax}
+        className={`w-full flex flex-col sm:flex-row items-center justify-center gap-3 border-2 border-dashed rounded-xl py-6 text-sm font-poppins transition-colors ${
+          atMax ? "border-navy/15 text-navy/40 bg-softgray/50 cursor-not-allowed" : "border-gold/60 text-navy hover:bg-gold/5 cursor-pointer"
         }`}
-        title={uploader ? (atMax ? `Maximum ${maxImages} images reached` : "Upload one or more images") : "Cloudinary not connected yet — paste an image URL above."}
       >
-        <input
-          data-testid={`${testIdPrefix}-upload-input`}
-          type="file"
-          accept="image/*"
-          multiple
-          disabled={!uploader || uploading || atMax}
-          className="hidden"
-          onChange={(e) => e.target.files && onUpload(Array.from(e.target.files))}
-        />
-        {uploader ? <UploadCloud size={18} className="text-gold" /> : <ImagePlus size={18} />}
-        <span>
-          {uploading ? "Uploading…" : atMax ? `Maximum ${maxImages} images reached` : uploader ? "Click to upload images from device" : "Direct upload (Cloudinary) — coming soon. Paste URLs for now."}
+        <UploadCloud size={22} className={atMax ? "text-navy/30" : "text-gold"} />
+        <span className="text-center">
+          {atMax ? (
+            `Maximum ${maxImages} images reached`
+          ) : (
+            <>
+              <span className="font-semibold">Click to upload images</span>
+              <span className="hidden sm:inline text-navy/60"> · JPG · PNG · WEBP · max 8 MB each</span>
+            </>
+          )}
         </span>
-      </label>
+      </button>
+
+      {/* Upload progress list */}
+      {Object.entries(uploads).length > 0 && (
+        <ul data-testid={`${testIdPrefix}-progress-list`} className="space-y-2">
+          {Object.entries(uploads).map(([tid, u]) => (
+            <li key={tid} data-testid={`${testIdPrefix}-progress-${tid}`} className="bg-softgray rounded-xl px-4 py-2.5">
+              <div className="flex items-center gap-3">
+                {u.error ? (
+                  <span className="text-red-500 text-xs font-montserrat uppercase">Failed</span>
+                ) : u.done ? (
+                  <span className="text-green-600 text-xs font-montserrat uppercase">Done</span>
+                ) : (
+                  <Loader2 size={14} className="text-gold animate-spin" />
+                )}
+                <span className="text-sm text-navy truncate flex-1 font-poppins">{u.name}</span>
+                <span className="text-xs text-navy/60 font-poppins tabular-nums">{u.error ? "!" : `${u.percent}%`}</span>
+              </div>
+              <div className="mt-2 h-1 bg-white rounded overflow-hidden">
+                <div
+                  className={`h-full transition-all ${u.error ? "bg-red-400" : u.done ? "bg-green-500" : "bg-gold"}`}
+                  style={{ width: `${u.percent || 0}%` }}
+                />
+              </div>
+              {u.error && <div className="mt-1 text-[11px] text-red-500 font-poppins">{u.error}</div>}
+            </li>
+          ))}
+        </ul>
+      )}
 
       {/* Image list */}
       {value.length === 0 ? (
         <div data-testid={`${testIdPrefix}-empty`} className="text-center py-8 text-xs text-navy/40 font-poppins border border-dashed border-navy/15 rounded-xl">
-          No images added yet. The first image becomes the cover / hero.
+          No images uploaded yet. The first image you add becomes the cover / hero.
         </div>
       ) : (
         <ul
@@ -305,7 +321,7 @@ export default function ImageManager({
       )}
 
       <p className="text-[11px] text-navy/50 font-poppins leading-relaxed">
-        Drag any image to reorder · The <span className="text-gold font-semibold">first image</span> is used as the hero on package cards & details page · Click the ★ to promote a gallery image to cover.
+        Drag any image to reorder · The <span className="text-gold font-semibold">first image</span> is used as the hero on package cards & the details page · Click the ★ to promote a gallery image to cover.
       </p>
     </div>
   );

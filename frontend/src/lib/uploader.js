@@ -1,30 +1,51 @@
+import { API } from "@/lib/api";
+
 /**
- * Uploader stub — return null to indicate no direct upload is wired.
+ * Cloudinary-backed image uploader (via our FastAPI backend).
  *
- * When Cloudinary credentials are available, replace `createUploader()`
- * with a real implementation, for example:
+ * Returns an async function that:
+ *   - accepts a File
+ *   - POSTs it as multipart/form-data to /api/admin/upload
+ *   - reports progress via onProgress callback (0..100)
+ *   - resolves with the secure Cloudinary URL
  *
- *   export function createUploader() {
- *     const CLOUD_NAME = process.env.REACT_APP_CLOUDINARY_CLOUD_NAME;
- *     const PRESET = process.env.REACT_APP_CLOUDINARY_UPLOAD_PRESET;
- *     if (!CLOUD_NAME || !PRESET) return null;
- *     return async (file) => {
- *       const fd = new FormData();
- *       fd.append("file", file);
- *       fd.append("upload_preset", PRESET);
- *       const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, {
- *         method: "POST", body: fd,
- *       });
- *       if (!res.ok) throw new Error("Upload failed");
- *       const data = await res.json();
- *       return data.secure_url;
- *     };
- *   }
- *
- * The <ImageManager /> component consumes this uploader via its `uploader` prop.
- * No other code changes are required to enable direct uploads.
+ * Usage (in ImageManager):
+ *   const uploader = createUploader();
+ *   await uploader(file, (percent) => setProgress(percent));
  */
 export function createUploader() {
-  // Cloudinary not connected yet — direct upload disabled, URL-based flow used instead.
-  return null;
+  return (file, onProgress) =>
+    new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${API}/admin/upload`, true);
+      xhr.withCredentials = true;
+
+      if (onProgress) {
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            onProgress(pct);
+          }
+        };
+      }
+
+      xhr.onload = () => {
+        try {
+          const data = JSON.parse(xhr.responseText || "{}");
+          if (xhr.status >= 200 && xhr.status < 300 && data.url) {
+            resolve({ url: data.url, public_id: data.public_id });
+          } else {
+            reject(new Error(data.detail || `Upload failed (HTTP ${xhr.status})`));
+          }
+        } catch (e) {
+          reject(new Error(`Upload failed (HTTP ${xhr.status})`));
+        }
+      };
+      xhr.onerror = () => reject(new Error("Network error while uploading"));
+      xhr.onabort = () => reject(new Error("Upload aborted"));
+
+      const fd = new FormData();
+      fd.append("file", file);
+      xhr.send(fd);
+    });
 }

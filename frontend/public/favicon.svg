@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="fbg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0A2A57"/>
+      <stop offset="1" stop-color="#071E3D"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="64" height="64" rx="14" fill="url(#fbg)"/>
+  <!-- horizon -->
+  <path d="M10 44 L54 44" stroke="#D4AF37" stroke-width="1" fill="none" opacity="0.9"/>
+  <!-- mountain -->
+  <path d="M10 44 L22 28 L30 36 L36 30 L44 40 L54 44 Z" fill="#0F3468"/>
+  <path d="M22 28 L25 32 L23 35 Z" fill="#F7F7F7" opacity="0.85"/>
+  <!-- palm frond -->
+  <g transform="translate(46 28)" fill="#D4AF37">
+    <path d="M0 18 L0 3"/>
+    <path d="M0 3 C-7 -1 -12 1 -12 4 C-8 3 -3 3 0 4 Z"/>
+    <path d="M0 3 C7 -1 12 1 12 4 C8 3 3 3 0 4 Z"/>
+    <path d="M0 3 C-3 -8 -7 -10 -10 -6 C-5 -4 -1 -1 0 4 Z"/>
+    <path d="M0 3 C3 -8 7 -10 10 -6 C5 -4 1 -1 0 4 Z"/>
+  </g>
+  <!-- airplane trail -->
+  <path d="M8 22 Q32 8 56 22" stroke="#D4AF37" stroke-width="0.9" fill="none" stroke-dasharray="1.2 3" opacity="0.75"/>
+  <!-- airplane -->
+  <g transform="translate(32 14) rotate(20)">
+    <path d="M-7 0 L7 -1 L9 0 L7 1 L-7 0 Z M-4 -0.3 L-2 -3 L-1 -2.7 L-3 -0.3 Z M-4 0.3 L-2 3 L-1 2.7 L-3 0.3 Z" fill="#F7F7F7"/>
+    <circle cx="7" cy="0" r="0.9" fill="#D4AF37"/>
+  </g>
+</svg>

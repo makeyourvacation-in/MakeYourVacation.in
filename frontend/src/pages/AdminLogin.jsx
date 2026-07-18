@@ -4,8 +4,11 @@ import { useAuth } from "@/lib/auth";
 import { formatApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { Lock, User, ArrowRight } from "lucide-react";
+import { LogoMark } from "@/components/Logo";
+import useDocumentTitle from "@/hooks/useDocumentTitle";
 
 export default function AdminLogin() {
+  useDocumentTitle("MakeYourVacation.in | Admin Login");
   const { login } = useAuth();
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
@@ -32,9 +35,10 @@ export default function AdminLogin() {
       <div className="absolute inset-0 bg-navy/70" />
       <form onSubmit={submit} data-testid="admin-login-form" className="relative z-10 glass-dark rounded-3xl p-10 md:p-12 w-full max-w-md text-white">
         <div className="text-center mb-8">
-          <div className="section-eyebrow !text-gold">Admin</div>
-          <h1 className="mt-2 text-3xl md:text-4xl font-playfair font-semibold">Welcome Back</h1>
-          <p className="mt-2 text-white/60 text-sm font-poppins">Sign in to manage MakeYourVacation.in</p>
+          <div className="flex justify-center mb-4"><LogoMark size={64} /></div>
+          <div className="section-eyebrow !text-gold">MakeYourVacation.in</div>
+          <h1 className="mt-2 text-3xl md:text-4xl font-playfair font-semibold">Admin Sign In</h1>
+          <p className="mt-2 text-white/60 text-sm font-poppins">Manage packages, bookings and content.</p>
         </div>
 
         <label className="block mb-4">

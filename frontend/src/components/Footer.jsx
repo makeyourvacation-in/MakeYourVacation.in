@@ -1,13 +1,17 @@
 import { Link } from "react-router-dom";
 import { Mail, Phone, MapPin, Instagram, Facebook, Twitter } from "lucide-react";
+import { LogoMark } from "@/components/Logo";
 
 export default function Footer() {
   return (
     <footer data-testid="site-footer" className="bg-navy text-white relative overflow-hidden">
       <div className="max-w-7xl mx-auto px-6 sm:px-8 lg:px-12 py-20 grid grid-cols-1 md:grid-cols-4 gap-12">
         <div>
-          <div className="text-2xl font-playfair font-semibold">
-            MakeYour<span className="text-gold">Vacation</span>
+          <div className="flex items-center gap-3">
+            <LogoMark size={44} />
+            <div className="text-xl font-playfair font-semibold">
+              MakeYour<span className="text-gold">Vacation</span>
+            </div>
           </div>
           <p className="mt-4 text-sm text-white/70 leading-relaxed font-poppins">
             Curated luxury journeys across India's most enchanting destinations.

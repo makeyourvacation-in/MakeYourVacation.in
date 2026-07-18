@@ -3,8 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { api, API, formatApiError } from "@/lib/api";
 import { toast } from "sonner";
-import { Plus, Edit3, Trash2, Star, LogOut, X, Save, ExternalLink, Search, Download, Mail, Phone, Copy } from "lucide-react";
+import { Plus, Edit3, Trash2, Star, LogOut, X, Save, ExternalLink, Search, Download, Mail, Phone, Copy, MailCheck } from "lucide-react";
 import ImageManager from "@/components/ImageManager";
+import { LogoMark } from "@/components/Logo";
+import useDocumentTitle from "@/hooks/useDocumentTitle";
 import { createUploader } from "@/lib/uploader";
 
 const STATUSES = ["All", "New", "Contacted", "Confirmed", "Cancelled", "Completed"];
@@ -38,6 +40,7 @@ const EMPTY = {
 const uploader = createUploader(); // null until Cloudinary is wired
 
 export default function AdminDashboard() {
+  useDocumentTitle("MakeYourVacation.in | Admin Dashboard");
   const { admin, checking, logout } = useAuth();
   const nav = useNavigate();
   const [packages, setPackages] = useState([]);
@@ -124,18 +127,33 @@ export default function AdminDashboard() {
 
   const doLogout = async () => { await logout(); nav("/admin/login"); };
   const copyRef = (r) => { navigator.clipboard.writeText(r); toast.success("Reference copied"); };
+  const sendTestEmail = async () => {
+    const t = toast.loading("Sending test email…");
+    try {
+      const { data } = await api.post("/admin/test-email", {});
+      toast.success(data.message || "Test email sent", { id: t });
+    } catch (err) {
+      toast.error(formatApiError(err.response?.data?.detail) || err.message, { id: t });
+    }
+  };
 
   if (checking || !admin) return null;
 
   return (
-    <div className="min-h-screen bg-softgray pt-24">
-      <div className="max-w-7xl mx-auto px-6 sm:px-8 lg:px-12 py-10">
+    <div className="min-h-screen bg-softgray">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-12 py-8 md:py-10">
         <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
-          <div>
-            <div className="section-eyebrow">Admin Dashboard</div>
-            <h1 className="mt-2 text-3xl md:text-4xl font-playfair font-semibold text-navy">Welcome, {admin.username}</h1>
+          <div className="flex items-center gap-4">
+            <LogoMark size={52} />
+            <div>
+              <div className="section-eyebrow">Admin Dashboard</div>
+              <h1 className="mt-2 text-2xl md:text-3xl font-playfair font-semibold text-navy">Welcome, {admin.username}</h1>
+            </div>
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
+            <button data-testid="admin-test-email-btn" onClick={sendTestEmail} className="border border-navy/15 rounded-full px-4 py-2.5 text-xs font-montserrat uppercase tracking-wider flex items-center gap-2 hover:border-gold hover:text-gold transition-colors">
+              <MailCheck size={14}/> Test Email
+            </button>
             <button data-testid="admin-new-package-btn" onClick={() => setEditing({ ...EMPTY })} className="btn-gold !py-3 !px-5 text-xs"><Plus size={14}/> New Package</button>
             <button data-testid="admin-logout-btn" onClick={doLogout} className="btn-navy !py-3 !px-5 text-xs"><LogOut size={14}/> Logout</button>
           </div>

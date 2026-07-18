@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { Menu, X } from "lucide-react";
+import { LogoMark } from "@/components/Logo";
 
 const NAV = [
   { to: "/", label: "Home" },
@@ -35,8 +36,9 @@ export default function Navbar() {
     >
       <div className="max-w-7xl mx-auto px-5 sm:px-8 lg:px-12">
         <div className="flex items-center justify-between h-20">
-          <Link to="/" data-testid="nav-logo" className="flex items-center gap-2 group">
-            <div className={`text-2xl md:text-3xl font-playfair font-semibold tracking-tight ${solid ? "text-navy" : "text-white"}`}>
+          <Link to="/" data-testid="nav-logo" className="flex items-center gap-3 group">
+            <LogoMark size={40} />
+            <div className={`text-xl md:text-2xl font-playfair font-semibold tracking-tight ${solid ? "text-navy" : "text-white"}`}>
               MakeYour<span className="text-gold">Vacation</span>
             </div>
           </Link>
