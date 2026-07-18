@@ -116,6 +116,8 @@ class PackageIn(BaseModel):
     transportation: str = ""
     faqs: List[FAQItem] = []
     featured: bool = False
+    seo_title: str = ""
+    seo_description: str = ""
 
 class BookingIn(BaseModel):
     full_name: str
@@ -284,6 +286,8 @@ def pkg_to_out(doc: dict) -> dict:
         "transportation": doc.get("transportation", ""),
         "faqs": doc.get("faqs", []),
         "featured": doc.get("featured", False),
+        "seo_title": doc.get("seo_title", ""),
+        "seo_description": doc.get("seo_description", ""),
         "created_at": doc.get("created_at", ""),
         "updated_at": doc.get("updated_at", ""),
     }

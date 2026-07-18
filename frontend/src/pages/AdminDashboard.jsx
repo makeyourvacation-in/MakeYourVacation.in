@@ -285,26 +285,37 @@ function EditModal({ pkg, onClose, onSaved }) {
   const initialImages = pkg.hero_image ? [pkg.hero_image, ...(pkg.gallery || []).filter((g) => g !== pkg.hero_image)] : [];
   const [form, setForm] = useState({ ...pkg, images: initialImages });
   const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState({});
 
-  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const set = (k, v) => {
+    setForm((f) => ({ ...f, [k]: v }));
+    if (errors[k]) setErrors((prev) => { const n = { ...prev }; delete n[k]; return n; });
+  };
   const asList = (str) => str.split("\n").map((s) => s.trim()).filter(Boolean);
 
+  const validate = () => {
+    const e = {};
+    if (!form.name?.trim()) e.name = "Name is required";
+    if (!form.destination?.trim()) e.destination = "Destination is required";
+    if (!form.duration?.trim()) e.duration = "Duration is required";
+    if (form.price === "" || form.price === null || isNaN(parseFloat(form.price)) || parseFloat(form.price) < 0) e.price = "Enter a valid price";
+    if (!form.images || form.images.length === 0) e.images = "Add at least one image (max 5)";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
   const save = async () => {
-    if (!form.name || !form.destination) {
-      toast.error("Name and destination are required");
-      return;
-    }
-    if (!form.images || form.images.length === 0) {
-      toast.error("Please add at least one image (URL). Cloudinary upload will be enabled soon.");
+    if (!validate()) {
+      toast.error("Please fix the highlighted fields");
       return;
     }
     setSaving(true);
     try {
       const [cover, ...rest] = form.images;
       const payload = {
-        name: form.name,
-        destination: form.destination,
-        duration: form.duration,
+        name: form.name.trim(),
+        destination: form.destination.trim(),
+        duration: form.duration.trim(),
         price: parseFloat(form.price) || 0,
         hero_image: cover,
         gallery: rest,
@@ -318,13 +329,15 @@ function EditModal({ pkg, onClose, onSaved }) {
         itinerary: (form.itinerary || []).filter((d) => d.title || d.description),
         faqs: (form.faqs || []).filter((f) => f.question),
         featured: !!form.featured,
+        seo_title: form.seo_title || "",
+        seo_description: form.seo_description || "",
       };
       if (isNew) {
         await api.post("/admin/packages", payload);
-        toast.success("Package created");
+        toast.success("Package created successfully");
       } else {
         await api.put(`/admin/packages/${pkg.id}`, payload);
-        toast.success("Package updated");
+        toast.success("Package updated successfully");
       }
       onSaved();
     } catch (err) {
@@ -333,88 +346,237 @@ function EditModal({ pkg, onClose, onSaved }) {
   };
 
   const listVal = (arr) => (Array.isArray(arr) ? arr.join("\n") : arr || "");
-  const inputCls = "w-full bg-white border border-navy/15 rounded-xl px-4 py-2.5 text-sm font-poppins text-navy focus:outline-none focus:border-gold focus:ring-1 focus:ring-gold/40";
+  const inputCls = "w-full bg-white border border-navy/15 rounded-xl px-4 py-2.5 text-sm font-poppins text-navy focus:outline-none focus:border-gold focus:ring-1 focus:ring-gold/40 transition-colors";
+  const inputErr = "!border-red-400 focus:!border-red-500 focus:!ring-red-100";
 
   return (
-    <div className="fixed inset-0 z-[70] bg-navy/70 backdrop-blur-sm flex items-start md:items-center justify-center p-4 overflow-y-auto" data-testid="admin-edit-modal">
-      <div className="bg-white rounded-2xl w-full max-w-4xl my-8 p-8 luxury-shadow">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-playfair font-semibold text-navy">{isNew ? "New Package" : `Edit: ${pkg.name}`}</h2>
-          <button data-testid="admin-modal-close" onClick={onClose} className="text-navy/60 hover:text-navy"><X size={20}/></button>
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-5">
-          <F label="Name *"><input data-testid="edit-name" value={form.name} onChange={(e) => set("name", e.target.value)} className={inputCls}/></F>
-          <F label="Destination *"><input data-testid="edit-destination" value={form.destination} onChange={(e) => set("destination", e.target.value)} className={inputCls}/></F>
-          <F label="Duration"><input data-testid="edit-duration" value={form.duration} onChange={(e) => set("duration", e.target.value)} className={inputCls} placeholder="5 Days / 4 Nights"/></F>
-          <F label="Starting Price (₹)"><input data-testid="edit-price" type="number" value={form.price} onChange={(e) => set("price", e.target.value)} className={inputCls}/></F>
-          <F label="Short Description" full><textarea data-testid="edit-short-desc" rows={2} value={form.short_description} onChange={(e) => set("short_description", e.target.value)} className={inputCls}/></F>
-        </div>
-
-        {/* Images */}
-        <div className="mt-6">
-          <div className="text-[10px] font-montserrat uppercase tracking-[0.2em] text-navy/60 mb-2">Package Images * · <span className="text-gold">first image is the cover</span></div>
-          <ImageManager
-            value={form.images || []}
-            onChange={(arr) => set("images", arr)}
-            uploader={uploader}
-            testIdPrefix="pkg-img"
-          />
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-5 mt-6">
-          <F label="Highlights (one per line)"><textarea data-testid="edit-highlights" rows={4} value={listVal(form.highlights)} onChange={(e) => set("highlights", asList(e.target.value))} className={inputCls}/></F>
-          <F label="Inclusions (one per line)"><textarea data-testid="edit-inclusions" rows={4} value={listVal(form.inclusions)} onChange={(e) => set("inclusions", asList(e.target.value))} className={inputCls}/></F>
-          <F label="Exclusions (one per line)"><textarea data-testid="edit-exclusions" rows={4} value={listVal(form.exclusions)} onChange={(e) => set("exclusions", asList(e.target.value))} className={inputCls}/></F>
-          <F label="Hotel Details"><textarea data-testid="edit-hotel" rows={4} value={form.hotel_details} onChange={(e) => set("hotel_details", e.target.value)} className={inputCls}/></F>
-          <F label="Meals"><input data-testid="edit-meals" value={form.meals} onChange={(e) => set("meals", e.target.value)} className={inputCls}/></F>
-          <F label="Transportation"><input data-testid="edit-transport" value={form.transportation} onChange={(e) => set("transportation", e.target.value)} className={inputCls}/></F>
-        </div>
-
-        <div className="mt-6">
-          <div className="text-[10px] font-montserrat uppercase tracking-[0.2em] text-navy/60 mb-2">Itinerary</div>
-          {(form.itinerary || []).map((d, i) => (
-            <div key={i} className="grid grid-cols-12 gap-2 mb-2">
-              <input type="number" value={d.day} onChange={(e) => { const it = [...form.itinerary]; it[i] = { ...it[i], day: parseInt(e.target.value) || i+1 }; set("itinerary", it); }} className={`${inputCls} col-span-1`} />
-              <input placeholder="Title" value={d.title} onChange={(e) => { const it = [...form.itinerary]; it[i] = { ...it[i], title: e.target.value }; set("itinerary", it); }} className={`${inputCls} col-span-4`} />
-              <input placeholder="Description" value={d.description} onChange={(e) => { const it = [...form.itinerary]; it[i] = { ...it[i], description: e.target.value }; set("itinerary", it); }} className={`${inputCls} col-span-6`} />
-              <button onClick={() => set("itinerary", form.itinerary.filter((_, j) => j !== i))} className="col-span-1 text-red-500 hover:text-red-700"><Trash2 size={16}/></button>
+    <div
+      className="fixed inset-0 z-[70] bg-navy/70 backdrop-blur-sm overflow-y-auto overscroll-contain"
+      data-testid="admin-edit-modal"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="min-h-full py-6 md:py-10 px-3 md:px-6 flex justify-center">
+        <div className="bg-white rounded-2xl w-full max-w-5xl luxury-shadow h-fit overflow-hidden">
+          {/* Sticky mini-header inside card */}
+          <div className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-navy/10 px-6 md:px-10 py-4 flex items-center justify-between">
+            <div>
+              <div className="section-eyebrow">{isNew ? "New" : "Edit"} Package</div>
+              <h2 className="text-xl md:text-2xl font-playfair font-semibold text-navy mt-1">
+                {isNew ? "Create a new travel package" : pkg.name}
+              </h2>
             </div>
-          ))}
-          <button data-testid="edit-add-day" onClick={() => set("itinerary", [...(form.itinerary || []), { day: (form.itinerary?.length || 0) + 1, title: "", description: "" }])} className="text-xs text-gold font-montserrat uppercase tracking-wider">+ Add Day</button>
-        </div>
+            <button
+              data-testid="admin-modal-close"
+              onClick={onClose}
+              className="w-10 h-10 rounded-full border border-navy/15 flex items-center justify-center text-navy/60 hover:text-navy hover:border-navy transition-colors"
+              aria-label="Close"
+            >
+              <X size={18}/>
+            </button>
+          </div>
 
-        <div className="mt-6">
-          <div className="text-[10px] font-montserrat uppercase tracking-[0.2em] text-navy/60 mb-2">FAQs</div>
-          {(form.faqs || []).map((f, i) => (
-            <div key={i} className="grid grid-cols-12 gap-2 mb-2">
-              <input placeholder="Question" value={f.question} onChange={(e) => { const fs = [...form.faqs]; fs[i] = { ...fs[i], question: e.target.value }; set("faqs", fs); }} className={`${inputCls} col-span-5`} />
-              <input placeholder="Answer" value={f.answer} onChange={(e) => { const fs = [...form.faqs]; fs[i] = { ...fs[i], answer: e.target.value }; set("faqs", fs); }} className={`${inputCls} col-span-6`} />
-              <button onClick={() => set("faqs", form.faqs.filter((_, j) => j !== i))} className="col-span-1 text-red-500"><Trash2 size={16}/></button>
+          <div className="px-6 md:px-10 py-8 space-y-10">
+            {/* 1. Basic Information */}
+            <Section title="Basic Information" subtitle="Essential details about this package.">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <F label="Package Name *" error={errors.name}>
+                  <input data-testid="edit-name" value={form.name} onChange={(e) => set("name", e.target.value)} className={`${inputCls} ${errors.name ? inputErr : ""}`} placeholder="Enchanting Kashmir"/>
+                </F>
+                <F label="Destination *" error={errors.destination}>
+                  <input data-testid="edit-destination" value={form.destination} onChange={(e) => set("destination", e.target.value)} className={`${inputCls} ${errors.destination ? inputErr : ""}`} placeholder="Kashmir"/>
+                </F>
+                <F label="Duration *" error={errors.duration}>
+                  <input data-testid="edit-duration" value={form.duration} onChange={(e) => set("duration", e.target.value)} className={`${inputCls} ${errors.duration ? inputErr : ""}`} placeholder="6 Days / 5 Nights"/>
+                </F>
+                <label className="flex items-center gap-3 cursor-pointer self-end pb-2" data-testid="edit-featured-label">
+                  <input data-testid="edit-featured" type="checkbox" checked={!!form.featured} onChange={(e) => set("featured", e.target.checked)} className="w-4 h-4 accent-gold" />
+                  <span className="text-sm font-poppins text-navy">Mark as <b className="text-gold">Featured</b> (shows on homepage)</span>
+                </label>
+                <F label="Short Description" full>
+                  <textarea data-testid="edit-short-desc" rows={3} value={form.short_description || ""} onChange={(e) => set("short_description", e.target.value)} className={inputCls} placeholder="A one- or two-sentence teaser shown on cards and the top of the details page."/>
+                </F>
+              </div>
+            </Section>
+
+            {/* 2. Images */}
+            <Section
+              title="Images"
+              subtitle="Up to 5 images per package. Drag to reorder — the first image becomes the cover / hero."
+              error={errors.images}
+            >
+              <ImageManager
+                value={form.images || []}
+                onChange={(arr) => set("images", arr)}
+                uploader={uploader}
+                maxImages={5}
+                testIdPrefix="pkg-img"
+              />
+            </Section>
+
+            {/* 3. Pricing */}
+            <Section title="Pricing" subtitle="Starting price shown on cards and the details sidebar.">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <F label="Starting Price (₹) *" error={errors.price}>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-navy/50 font-poppins text-sm">₹</span>
+                    <input data-testid="edit-price" type="number" min="0" step="1" value={form.price} onChange={(e) => set("price", e.target.value)} className={`${inputCls} pl-9 ${errors.price ? inputErr : ""}`} placeholder="19999"/>
+                  </div>
+                  <p className="text-[11px] text-navy/50 font-poppins mt-1">Per person on twin sharing.</p>
+                </F>
+              </div>
+            </Section>
+
+            {/* 4. Itinerary */}
+            <Section title="Itinerary" subtitle="Day-by-day plan for the traveller.">
+              <div className="space-y-2">
+                {(form.itinerary || []).map((d, i) => (
+                  <div key={i} className="grid grid-cols-1 md:grid-cols-12 gap-2">
+                    <input type="number" min="1" value={d.day} onChange={(e) => { const it = [...form.itinerary]; it[i] = { ...it[i], day: parseInt(e.target.value) || i+1 }; set("itinerary", it); }} className={`${inputCls} md:col-span-1`} placeholder="Day"/>
+                    <input placeholder="Title" value={d.title} onChange={(e) => { const it = [...form.itinerary]; it[i] = { ...it[i], title: e.target.value }; set("itinerary", it); }} className={`${inputCls} md:col-span-4`} />
+                    <input placeholder="Description" value={d.description} onChange={(e) => { const it = [...form.itinerary]; it[i] = { ...it[i], description: e.target.value }; set("itinerary", it); }} className={`${inputCls} md:col-span-6`} />
+                    <button type="button" onClick={() => set("itinerary", form.itinerary.filter((_, j) => j !== i))} className="md:col-span-1 flex items-center justify-center rounded-xl border border-red-100 text-red-500 hover:bg-red-50 py-2.5" title="Remove day"><Trash2 size={16}/></button>
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                data-testid="edit-add-day"
+                onClick={() => set("itinerary", [...(form.itinerary || []), { day: (form.itinerary?.length || 0) + 1, title: "", description: "" }])}
+                className="mt-3 text-xs text-gold font-montserrat uppercase tracking-wider flex items-center gap-1 hover:text-gold-dark"
+              >
+                <Plus size={12}/> Add Day
+              </button>
+            </Section>
+
+            {/* 5. Highlights */}
+            <Section title="Highlights" subtitle="Bullet-style key attractions. One highlight per line.">
+              <F>
+                <textarea data-testid="edit-highlights" rows={5} value={listVal(form.highlights)} onChange={(e) => set("highlights", asList(e.target.value))} className={inputCls} placeholder={"Deluxe Houseboat Stay\nGulmarg Gondola Ride\nSonamarg Excursion"}/>
+              </F>
+            </Section>
+
+            {/* 6. Inclusions */}
+            <Section title="Inclusions" subtitle="What is included in the package. One item per line.">
+              <F>
+                <textarea data-testid="edit-inclusions" rows={5} value={listVal(form.inclusions)} onChange={(e) => set("inclusions", asList(e.target.value))} className={inputCls} placeholder={"Premium hotel accommodation\nDaily breakfast & dinner\nPrivate A/C transport"}/>
+              </F>
+            </Section>
+
+            {/* 7. Exclusions */}
+            <Section title="Exclusions" subtitle="What is not included. One item per line.">
+              <F>
+                <textarea data-testid="edit-exclusions" rows={5} value={listVal(form.exclusions)} onChange={(e) => set("exclusions", asList(e.target.value))} className={inputCls} placeholder={"Airfare / train fare\nPersonal expenses\nTravel insurance"}/>
+              </F>
+            </Section>
+
+            {/* 8. Hotel & Logistics */}
+            <Section title="Hotel & Logistics" subtitle="Accommodation, meals and transportation details.">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <F label="Hotel Details" full>
+                  <textarea data-testid="edit-hotel" rows={3} value={form.hotel_details || ""} onChange={(e) => set("hotel_details", e.target.value)} className={inputCls}/>
+                </F>
+                <F label="Meals">
+                  <input data-testid="edit-meals" value={form.meals || ""} onChange={(e) => set("meals", e.target.value)} className={inputCls}/>
+                </F>
+                <F label="Transportation">
+                  <input data-testid="edit-transport" value={form.transportation || ""} onChange={(e) => set("transportation", e.target.value)} className={inputCls}/>
+                </F>
+              </div>
+            </Section>
+
+            {/* 9. FAQs */}
+            <Section title="FAQs" subtitle="Common questions travellers ask about this package.">
+              <div className="space-y-2">
+                {(form.faqs || []).map((f, i) => (
+                  <div key={i} className="grid grid-cols-1 md:grid-cols-12 gap-2">
+                    <input placeholder="Question" value={f.question} onChange={(e) => { const fs = [...form.faqs]; fs[i] = { ...fs[i], question: e.target.value }; set("faqs", fs); }} className={`${inputCls} md:col-span-5`} />
+                    <input placeholder="Answer" value={f.answer} onChange={(e) => { const fs = [...form.faqs]; fs[i] = { ...fs[i], answer: e.target.value }; set("faqs", fs); }} className={`${inputCls} md:col-span-6`} />
+                    <button type="button" onClick={() => set("faqs", form.faqs.filter((_, j) => j !== i))} className="md:col-span-1 flex items-center justify-center rounded-xl border border-red-100 text-red-500 hover:bg-red-50 py-2.5" title="Remove FAQ"><Trash2 size={16}/></button>
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                data-testid="edit-add-faq"
+                onClick={() => set("faqs", [...(form.faqs || []), { question: "", answer: "" }])}
+                className="mt-3 text-xs text-gold font-montserrat uppercase tracking-wider flex items-center gap-1 hover:text-gold-dark"
+              >
+                <Plus size={12}/> Add FAQ
+              </button>
+            </Section>
+
+            {/* 10. SEO (optional) */}
+            <Section title="SEO (Optional)" subtitle="Custom title and description used by search engines and social share previews.">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <F label="Meta Title" full>
+                  <input data-testid="edit-seo-title" value={form.seo_title || ""} onChange={(e) => set("seo_title", e.target.value)} className={inputCls} placeholder="Luxury Kashmir Tour Package — 6 Days / 5 Nights"/>
+                  <p className="text-[11px] text-navy/50 font-poppins mt-1">{(form.seo_title || "").length} / 60 recommended</p>
+                </F>
+                <F label="Meta Description" full>
+                  <textarea data-testid="edit-seo-desc" rows={3} value={form.seo_description || ""} onChange={(e) => set("seo_description", e.target.value)} className={inputCls} placeholder="Short summary shown in Google results and link previews."/>
+                  <p className="text-[11px] text-navy/50 font-poppins mt-1">{(form.seo_description || "").length} / 160 recommended</p>
+                </F>
+              </div>
+            </Section>
+          </div>
+
+          {/* Sticky footer actions */}
+          <div className="sticky bottom-0 z-10 bg-white/95 backdrop-blur border-t border-navy/10 px-6 md:px-10 py-4 flex flex-col md:flex-row items-center justify-between gap-3">
+            <div className="text-xs font-poppins text-navy/50">
+              {isNew ? "New package will be published immediately." : "Changes are visible on the site as soon as you save."}
             </div>
-          ))}
-          <button data-testid="edit-add-faq" onClick={() => set("faqs", [...(form.faqs || []), { question: "", answer: "" }])} className="text-xs text-gold font-montserrat uppercase tracking-wider">+ Add FAQ</button>
-        </div>
-
-        <label className="mt-6 flex items-center gap-3 cursor-pointer" data-testid="edit-featured-label">
-          <input data-testid="edit-featured" type="checkbox" checked={!!form.featured} onChange={(e) => set("featured", e.target.checked)} className="w-4 h-4 accent-gold" />
-          <span className="text-sm font-poppins text-navy">Mark as Featured (shows on homepage)</span>
-        </label>
-
-        <div className="mt-8 flex justify-end gap-3">
-          <button onClick={onClose} className="px-6 py-2.5 rounded-full border border-navy/15 text-navy text-sm font-montserrat uppercase tracking-wider">Cancel</button>
-          <button data-testid="admin-save-btn" onClick={save} disabled={saving} className="btn-gold !py-3 !px-6 text-xs disabled:opacity-60">{saving ? "Saving…" : (<><Save size={14}/> Save Package</>)}</button>
+            <div className="flex gap-3 w-full md:w-auto">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={saving}
+                className="flex-1 md:flex-none px-6 py-2.5 rounded-full border border-navy/15 text-navy text-xs font-montserrat uppercase tracking-wider hover:border-navy transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="admin-save-btn"
+                onClick={save}
+                disabled={saving}
+                className="btn-gold !py-3 !px-6 text-xs disabled:opacity-60 flex-1 md:flex-none justify-center"
+              >
+                {saving ? (
+                  <>
+                    <span className="w-4 h-4 rounded-full border-2 border-navy border-t-transparent animate-spin" />
+                    Saving…
+                  </>
+                ) : (
+                  <><Save size={14}/> {isNew ? "Create Package" : "Save Changes"}</>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function F({ label, children, full }) {
+function Section({ title, subtitle, error, children }) {
+  return (
+    <section className="scroll-mt-24">
+      <div className="border-l-2 border-gold pl-4 mb-5">
+        <h3 className="font-playfair text-xl md:text-2xl text-navy font-semibold">{title}</h3>
+        {subtitle && <p className="text-xs md:text-sm text-navy/55 font-poppins mt-1">{subtitle}</p>}
+        {error && <p className="text-xs text-red-500 font-poppins mt-1.5" data-testid="section-error">{error}</p>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function F({ label, children, full, error }) {
   return (
     <label className={`block ${full ? "md:col-span-2" : ""}`}>
-      <span className="block text-[10px] font-montserrat uppercase tracking-[0.2em] text-navy/60 mb-1.5">{label}</span>
+      {label && <span className="block text-[10px] font-montserrat uppercase tracking-[0.2em] text-navy/60 mb-1.5">{label}</span>}
       {children}
+      {error && <span className="block text-[11px] text-red-500 font-poppins mt-1">{error}</span>}
     </label>
   );
 }
